@@ -982,7 +982,7 @@ components:
         updatedAt:
           type: string
           format: date-time
-      required: [id, name, monthlyCredits, rpm, maxApiKeys, modelsAllowed, priceUsd, isActive, createdAt, updatedAt]
+      required: [id, name, monthlyCredits, rpm, maxApiKeys, maxWebhooks, modelsAllowed, priceUsd, isActive, createdAt, updatedAt]
 
     CreatePlanBody:
       type: object
@@ -996,6 +996,8 @@ components:
         rpm:
           type: integer
         maxApiKeys:
+          type: integer
+        maxWebhooks:
           type: integer
         modelsAllowed:
           type: array
@@ -1019,6 +1021,8 @@ components:
         rpm:
           type: integer
         maxApiKeys:
+          type: integer
+        maxWebhooks:
           type: integer
         modelsAllowed:
           type: array

@@ -615,6 +615,12 @@ export default function Landing() {
               <button className="hover:text-foreground transition-colors" onClick={() => navigate("/signup")}>
                 {t("landing.nav.getStarted")}
               </button>
+              <button className="hover:text-foreground transition-colors" onClick={() => navigate("/privacy")}>
+                {isAr ? "الخصوصية" : "Privacy"}
+              </button>
+              <button className="hover:text-foreground transition-colors" onClick={() => navigate("/terms")}>
+                {isAr ? "الشروط" : "Terms"}
+              </button>
             </div>
 
             <p className="text-sm text-muted-foreground">

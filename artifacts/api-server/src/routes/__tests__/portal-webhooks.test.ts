@@ -175,6 +175,68 @@ describe("Portal Webhooks — POST create", () => {
   });
 });
 
+describe("Portal Webhooks — Soft Limit (plan.maxWebhooks)", () => {
+  it("returns 403 when user is at plan webhook limit", async () => {
+    const token = await makeUserToken();
+    // Sequence of terminal limit/where calls:
+    //   1) requireAuth — users limit(1) → [{ isActive: true }]
+    //   2) handler users limit(1)       → [{ planId: 7 }]
+    //   3) handler plans limit(1)       → [{ maxWebhooks: 2, name: "Starter" }]
+    //   4) handler webhooks where(...)  → 2 rows → at-limit
+    dbMock.limit
+      .mockResolvedValueOnce([{ isActive: true }])
+      .mockResolvedValueOnce([{ planId: 7 }])
+      .mockResolvedValueOnce([{ maxWebhooks: 2, name: "Starter" }]);
+    dbMock.where
+      .mockReturnValueOnce(dbMock) // requireAuth
+      .mockReturnValueOnce(dbMock) // user select
+      .mockReturnValueOnce(dbMock) // plan select
+      .mockResolvedValueOnce([{ id: 1 }, { id: 2 }]); // existing webhooks count
+    const { default: app } = await import("../../app");
+    const res = await request(app)
+      .post("/api/portal/webhooks")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Third Hook", url: "https://example.com/3", events: [] });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/Starter/);
+    expect(res.body.error).toMatch(/2/);
+  });
+
+  it("succeeds when user is below plan webhook limit", async () => {
+    const token = await makeUserToken();
+    dbMock.limit
+      .mockResolvedValueOnce([{ isActive: true }])
+      .mockResolvedValueOnce([{ planId: 7 }])
+      .mockResolvedValueOnce([{ maxWebhooks: 5, name: "Pro" }]);
+    dbMock.where
+      .mockReturnValueOnce(dbMock)
+      .mockReturnValueOnce(dbMock)
+      .mockReturnValueOnce(dbMock)
+      .mockResolvedValueOnce([{ id: 1 }]);
+    const { default: app } = await import("../../app");
+    const res = await request(app)
+      .post("/api/portal/webhooks")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Second Hook", url: "https://example.com/2", events: [] });
+    expect(res.status).toBe(201);
+  });
+
+  it("skips enforcement (allows create) when user has no plan assigned", async () => {
+    const token = await makeUserToken();
+    // 1) requireAuth users limit(1) → [{ isActive: true }]
+    // 2) handler users limit(1)     → [{ planId: null }] → skip enforcement
+    dbMock.limit
+      .mockResolvedValueOnce([{ isActive: true }])
+      .mockResolvedValueOnce([{ planId: null }]);
+    const { default: app } = await import("../../app");
+    const res = await request(app)
+      .post("/api/portal/webhooks")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "No Plan Hook", url: "https://example.com/np", events: [] });
+    expect(res.status).toBe(201);
+  });
+});
+
 describe("Portal Webhooks — DELETE", () => {
   it("returns 200 when webhook is found and deleted", async () => {
     const token = await makeUserToken();

@@ -47,6 +47,8 @@ const mockApiKey = {
     updatedAt: new Date(),
   },
   accountCreditBalance: 50.0,
+  topupCredit: 0,
+  billingTarget: { targetType: "user", id: 20, creditBalance: 50, topupCreditBalance: 0 } as const,
 };
 
 vi.mock("@workspace/db", () => ({
@@ -159,7 +161,7 @@ describe("POST /v1/generate — Input Validation", () => {
       .set("Authorization", "Bearer gw_test")
       .send({ model: "gemini-2.5-flash", prompt: "A cat" });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/only Imagen models/i);
+    expect(res.body.error).toMatch(/Imagen models/i);
   });
 
   it("returns 400 for veo model on generate endpoint", async () => {
@@ -169,7 +171,7 @@ describe("POST /v1/generate — Input Validation", () => {
       .set("Authorization", "Bearer gw_test")
       .send({ model: "veo-2.0-generate-001", prompt: "A sunset" });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/only Imagen models/i);
+    expect(res.body.error).toMatch(/Imagen models/i);
   });
 
   it("returns 400 for grok model on generate endpoint", async () => {

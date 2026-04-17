@@ -47,6 +47,8 @@ const mockApiKey = {
     updatedAt: new Date(),
   },
   accountCreditBalance: 50.0,
+  topupCredit: 0,
+  billingTarget: { kind: "personal", userId: 10 } as const,
 };
 
 vi.mock("@workspace/db", () => ({
@@ -95,6 +97,7 @@ vi.mock("../../lib/chatUtils", () => ({
   },
   deductAndLog: vi.fn().mockResolvedValue(true),
   estimateChatCost: vi.fn().mockReturnValue(0.001),
+  isModelInPlan: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock("../../lib/vertexai", () => ({
@@ -167,6 +170,9 @@ beforeEach(async () => {
   vi.mocked(chatUtils.stripThinkTags).mockImplementation((t: string) => t);
   vi.mocked(chatUtils.deductAndLog).mockResolvedValue(true);
   vi.mocked(chatUtils.estimateChatCost).mockReturnValue(0.001);
+  vi.mocked(chatUtils.isModelInPlan).mockImplementation(
+    (allowed: string[], model: string) => allowed.length === 0 || allowed.includes(model),
+  );
 
   const vertexai = await import("../../lib/vertexai");
   vi.mocked(vertexai.detectModelProvider).mockImplementation((model: string) => {
@@ -439,6 +445,6 @@ describe("POST /v1/chat — Plan model restrictions", () => {
       .set("Authorization", "Bearer gw_test")
       .send({ model: "grok-4.20", messages: [{ role: "user", content: "hi" }] });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/not allowed on your current plan/i);
+    expect(res.body.error).toMatch(/not included in your current plan/i);
   });
 });

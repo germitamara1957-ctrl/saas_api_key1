@@ -63,6 +63,7 @@ vi.mock("../../middlewares/adminAuth", () => ({
 vi.mock("../../middlewares/adminRateLimit", () => ({
   adminRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
   adminAuthRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
+  portalTwoFaRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
 }));
 
 vi.mock("../../lib/crypto", () => ({

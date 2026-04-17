@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import crypto from "crypto";
-import { db, webhooksTable } from "@workspace/db";
+import { db, webhooksTable, usersTable, plansTable } from "@workspace/db";
 import { sendSingleWebhook, type WebhookPayload } from "../../lib/webhookDispatcher";
 
 const router: IRouter = Router();
@@ -34,6 +34,33 @@ router.post("/portal/webhooks", async (req, res): Promise<void> => {
   }
 
   const eventsArr: string[] = Array.isArray(events) ? events.filter((e): e is string => typeof e === "string") : [];
+
+  // Soft limit: enforce per-plan maxWebhooks
+  const [user] = await db
+    .select({ planId: usersTable.currentPlanId })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (user?.planId) {
+    const [plan] = await db
+      .select({ maxWebhooks: plansTable.maxWebhooks, name: plansTable.name })
+      .from(plansTable)
+      .where(eq(plansTable.id, user.planId))
+      .limit(1);
+    if (plan) {
+      const existing = await db
+        .select({ id: webhooksTable.id })
+        .from(webhooksTable)
+        .where(eq(webhooksTable.userId, userId));
+      if (existing.length >= plan.maxWebhooks) {
+        res.status(403).json({
+          error: `Plan "${plan.name}" allows up to ${plan.maxWebhooks} webhooks. Upgrade your plan to add more.`,
+        });
+        return;
+      }
+    }
+  }
+
   const secret = crypto.randomBytes(24).toString("hex");
 
   const [hook] = await db

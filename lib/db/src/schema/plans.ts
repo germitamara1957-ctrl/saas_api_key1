@@ -10,6 +10,7 @@ export const plansTable = pgTable("plans", {
   monthlyCredits: doublePrecision("monthly_credits").notNull().default(0),
   rpm: integer("rpm").notNull().default(60),
   maxApiKeys: integer("max_api_keys").notNull().default(3),
+  maxWebhooks: integer("max_webhooks").notNull().default(3),
   modelsAllowed: text("models_allowed").array().notNull().default(sql`ARRAY[]::text[]`),
   priceUsd: doublePrecision("price_usd").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),

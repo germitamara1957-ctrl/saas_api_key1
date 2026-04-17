@@ -38,7 +38,7 @@ vi.mock("@workspace/db", () => ({
   plansTable: {
     id: "id", name: "name", priceUsd: "price_usd", monthlyCredits: "monthly_credits",
     isActive: "is_active", rpm: "rpm", modelsAllowed: "models_allowed",
-    maxApiKeys: "max_api_keys", description: "description",
+    maxApiKeys: "max_api_keys", maxWebhooks: "max_webhooks", description: "description",
     createdAt: "created_at", updatedAt: "updated_at",
   },
   modelCostsTable: {
@@ -82,6 +82,7 @@ vi.mock("../../middlewares/adminAuth", () => ({
 vi.mock("../../middlewares/adminRateLimit", () => ({
   adminRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
   adminAuthRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
+  portalTwoFaRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
 }));
 
 vi.mock("../../lib/billing", () => ({

@@ -12,6 +12,7 @@ export interface UpdatePlanBody {
   monthlyCredits?: number;
   rpm?: number;
   maxApiKeys?: number;
+  maxWebhooks?: number;
   modelsAllowed?: string[];
   priceUsd?: number;
   isActive?: boolean;

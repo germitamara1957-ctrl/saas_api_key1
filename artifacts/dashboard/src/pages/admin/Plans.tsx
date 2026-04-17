@@ -26,6 +26,7 @@ const planSchema = z.object({
   monthlyCredits: z.coerce.number().min(0),
   rpm: z.coerce.number().min(0),
   maxApiKeys: z.coerce.number().min(1).default(3),
+  maxWebhooks: z.coerce.number().min(0).default(3),
   modelsAllowed: z.string().min(1),
   priceUsd: z.coerce.number().min(0),
 });
@@ -260,6 +261,7 @@ export default function AdminPlans() {
       monthlyCredits: 1000,
       rpm: 60,
       maxApiKeys: 3,
+      maxWebhooks: 3,
       modelsAllowed: "gemini-3.0-flash-preview,gemini-3.1-pro-preview",
       priceUsd: 0,
     },
@@ -267,7 +269,7 @@ export default function AdminPlans() {
 
   const editForm = useForm<z.infer<typeof planSchema>>({
     resolver: zodResolver(planSchema),
-    defaultValues: { name: "", description: "", monthlyCredits: 1000, rpm: 60, maxApiKeys: 3, modelsAllowed: "", priceUsd: 0 },
+    defaultValues: { name: "", description: "", monthlyCredits: 1000, rpm: 60, maxApiKeys: 3, maxWebhooks: 3, modelsAllowed: "", priceUsd: 0 },
   });
 
   const openEditDialog = (plan: Plan) => {
@@ -423,6 +425,10 @@ export default function AdminPlans() {
                       <span className="text-muted-foreground">Max API Keys</span>
                       <span className="font-mono font-medium">{(plan as Plan & { maxApiKeys?: number }).maxApiKeys ?? 3}</span>
                     </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Max Webhooks</span>
+                      <span className="font-mono font-medium">{(plan as Plan & { maxWebhooks?: number }).maxWebhooks ?? 3}</span>
+                    </div>
                   </div>
 
                   {/* Models grouped by category */}
@@ -571,6 +577,13 @@ export default function AdminPlans() {
                   <FormItem>
                     <Label>Max API Keys</Label>
                     <FormControl><Input type="number" min="1" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="maxWebhooks" render={({ field }) => (
+                  <FormItem>
+                    <Label>Max Webhooks</Label>
+                    <FormControl><Input type="number" min="0" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

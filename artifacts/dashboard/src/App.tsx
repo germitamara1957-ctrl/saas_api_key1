@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth";
 import { AuthProvider } from "@/lib/auth-provider";
 
 import Landing from "@/pages/Landing";
+import Privacy from "@/pages/Privacy";
+import Terms from "@/pages/Terms";
 import Status from "@/pages/Status";
 
 import AdminLogin from "@/pages/admin/Login";
@@ -111,6 +113,8 @@ function App() {
               <ErrorBoundary>
                 <Routes>
                   <Route path="/" element={<RootRedirect />} />
+                  <Route path="/privacy" element={<Privacy />} />
+                  <Route path="/terms" element={<Terms />} />
                   <Route path="/admin/login" element={<AdminLogin />} />
                   <Route path="/admin/*" element={<AdminRoutes />} />
                   <Route path="/login" element={<PortalLogin />} />

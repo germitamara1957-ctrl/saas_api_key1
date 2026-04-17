@@ -32,6 +32,7 @@ vi.mock("@workspace/db", () => ({
   plansTable: {},
   providersTable: {},
   promoCodesTable: {},
+  healthSnapshotsTable: {},
 }));
 
 describe("GET /healthz", () => {

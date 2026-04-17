@@ -38,9 +38,12 @@ const mockApiKey = {
   updatedAt: new Date(),
   plan: {
     id: 1, name: "Pro", rpm: 60, monthlyCredits: 100, priceUsd: 49,
-    isActive: true, modelsAllowed: [], createdAt: new Date(), updatedAt: new Date(),
+    isActive: true, modelsAllowed: ["gemini-2.5-flash", "gemini-2.5-pro", "grok-3", "imagen-4-fast", "veo-2"],
+    createdAt: new Date(), updatedAt: new Date(),
   },
   accountCreditBalance: 50.0,
+  topupCredit: 0,
+  billingTarget: { targetType: "user" as const, userId: 10, accountId: null },
 };
 
 vi.mock("@workspace/db", () => ({
@@ -89,6 +92,7 @@ vi.mock("../../middlewares/adminAuth", () => ({
 vi.mock("../../middlewares/adminRateLimit", () => ({
   adminRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
   adminAuthRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
+  portalTwoFaRateLimit: vi.fn((_req: any, _res: any, next: any) => next()),
 }));
 
 vi.mock("../../middlewares/apiKeyAuth", () => ({
@@ -142,6 +146,11 @@ vi.mock("../../lib/chatUtils", () => ({
   stripThinkTags: vi.fn().mockImplementation((t: string) => t),
   deductAndLog: vi.fn().mockResolvedValue(true),
   estimateChatCost: vi.fn().mockReturnValue(0.001),
+  isModelInPlan: vi.fn().mockReturnValue(true),
+  ThinkTagFilter: class {
+    push(s: string) { return s; }
+    flush() { return ""; }
+  },
 }));
 
 vi.mock("../../lib/webhookDispatcher", () => ({
@@ -163,7 +172,11 @@ beforeEach(async () => {
   dbMock.orderBy.mockReturnThis();
   dbMock.insert.mockReturnThis();
   dbMock.values.mockReturnThis();
+  dbMock.update.mockReturnThis();
+  dbMock.set.mockReturnThis();
+  dbMock.delete.mockReturnThis();
   dbMock.returning.mockResolvedValue([]);
+  dbMock.execute.mockResolvedValue([]);
   dbMock.groupBy.mockReturnThis();
   dbMock.then.mockImplementation((resolve: (v: unknown[]) => unknown) => resolve([]));
 
@@ -196,6 +209,11 @@ beforeEach(async () => {
 
   const chatUtils = await import("../../lib/chatUtils");
   vi.mocked(chatUtils.deductAndLog).mockResolvedValue(true);
+  vi.mocked(chatUtils.isModelInPlan).mockReturnValue(true);
+  vi.mocked(chatUtils.stripThinkTags).mockImplementation((t: string) => t);
+
+  const billing2 = await import("../../lib/billing");
+  vi.mocked(billing2.calculateChatCost).mockReturnValue(0.001);
 
   const iprl = await import("../../lib/ipRateLimit");
   vi.mocked(iprl.checkLoginLimit).mockResolvedValue({ allowed: true, retryAfterMs: 0 });
