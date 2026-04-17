@@ -5,7 +5,8 @@ import { eq, and, sql } from "drizzle-orm";
 const router: IRouter = Router();
 
 router.post("/portal/promo-codes/redeem", async (req, res): Promise<void> => {
-  const user = (req as unknown as { user: { id: number; email: string } }).user;
+  // Auth middleware (requireAuth) sets req.authUser, not req.user.
+  const userId = Number(req.authUser!.sub);
 
   const rawCode = (req.body as { code?: unknown }).code;
   if (typeof rawCode !== "string" || rawCode.trim().length === 0) {
@@ -47,7 +48,7 @@ router.post("/portal/promo-codes/redeem", async (req, res): Promise<void> => {
     .where(
       and(
         eq(promoCodeUsesTable.promoCodeId, promoCode.id),
-        eq(promoCodeUsesTable.userId, user.id)
+        eq(promoCodeUsesTable.userId, userId)
       )
     )
     .limit(1);
@@ -60,7 +61,7 @@ router.post("/portal/promo-codes/redeem", async (req, res): Promise<void> => {
   await db.transaction(async (tx) => {
     await tx.insert(promoCodeUsesTable).values({
       promoCodeId: promoCode.id,
-      userId: user.id,
+      userId,
     });
 
     await tx
@@ -71,13 +72,13 @@ router.post("/portal/promo-codes/redeem", async (req, res): Promise<void> => {
     await tx
       .update(usersTable)
       .set({ creditBalance: sql`${usersTable.creditBalance} + ${promoCode.creditsAmount}` })
-      .where(eq(usersTable.id, user.id));
+      .where(eq(usersTable.id, userId));
   });
 
   const [updatedUser] = await db
     .select({ creditBalance: usersTable.creditBalance })
     .from(usersTable)
-    .where(eq(usersTable.id, user.id))
+    .where(eq(usersTable.id, userId))
     .limit(1);
 
   res.json({
