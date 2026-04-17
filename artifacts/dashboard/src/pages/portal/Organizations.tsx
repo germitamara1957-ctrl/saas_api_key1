@@ -35,7 +35,7 @@ export default function Organizations() {
   const { data, isLoading } = useQuery({
     queryKey: ["portal-orgs"],
     queryFn: async () => {
-      const res = await authFetch("/portal/organizations");
+      const res = await authFetch("/api/portal/organizations");
       if (!res.ok) throw new Error("Failed to load");
       return (await res.json()) as { organizations: Organization[] };
     },
@@ -43,7 +43,7 @@ export default function Organizations() {
 
   const create = useMutation({
     mutationFn: async (n: string) => {
-      const res = await authFetch("/portal/organizations", { method: "POST", body: JSON.stringify({ name: n }) });
+      const res = await authFetch("/api/portal/organizations", { method: "POST", body: JSON.stringify({ name: n }) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
       return (await res.json()) as { organization: Organization };
     },

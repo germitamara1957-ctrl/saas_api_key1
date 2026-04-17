@@ -39,7 +39,7 @@ export default function AdminIncidents() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-incidents"],
     queryFn: async () => {
-      const res = await authFetch("/admin/incidents");
+      const res = await authFetch("/api/admin/incidents");
       if (!res.ok) throw new Error("Failed to load incidents");
       return (await res.json()) as { incidents: Incident[] };
     },
@@ -62,7 +62,7 @@ export default function AdminIncidents() {
 
   const del = useMutation({
     mutationFn: async (id: number) => {
-      const res = await authFetch(`/admin/incidents/${id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/admin/incidents/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-incidents"] }),

@@ -76,7 +76,7 @@ export default function OrganizationDetail() {
   const { data, isLoading } = useQuery({
     queryKey: ["portal-org", orgId],
     queryFn: async () => {
-      const res = await authFetch(`/portal/organizations/${orgId}`);
+      const res = await authFetch(`/api/portal/organizations/${orgId}`);
       if (!res.ok) throw new Error("Failed to load");
       return (await res.json()) as OrgDetail;
     },
@@ -88,7 +88,7 @@ export default function OrganizationDetail() {
   const { data: keysData } = useQuery({
     queryKey: ["portal-org-keys", orgId],
     queryFn: async () => {
-      const res = await authFetch(`/portal/organizations/${orgId}/api-keys`);
+      const res = await authFetch(`/api/portal/organizations/${orgId}/api-keys`);
       if (!res.ok) throw new Error("Failed to load");
       return (await res.json()) as { apiKeys: OrgApiKey[] };
     },
@@ -97,7 +97,7 @@ export default function OrganizationDetail() {
 
   const createKey = useMutation({
     mutationFn: async () => {
-      const res = await authFetch(`/portal/organizations/${orgId}/api-keys`, {
+      const res = await authFetch(`/api/portal/organizations/${orgId}/api-keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newKeyName.trim() || undefined }),
@@ -117,7 +117,7 @@ export default function OrganizationDetail() {
 
   const revokeKey = useMutation({
     mutationFn: async (keyId: number) => {
-      const res = await authFetch(`/portal/organizations/${orgId}/api-keys/${keyId}`, { method: "DELETE" });
+      const res = await authFetch(`/api/portal/organizations/${orgId}/api-keys/${keyId}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed to revoke");
     },
     onSuccess: () => {
@@ -134,7 +134,7 @@ export default function OrganizationDetail() {
         dailySpendLimitUsd: dailyCap === "" ? null : Number(dailyCap),
         monthlySpendLimitUsd: monthlyCap === "" ? null : Number(monthlyCap),
       };
-      const res = await authFetch(`/portal/organizations/${orgId}/spending-limits`, {
+      const res = await authFetch(`/api/portal/organizations/${orgId}/spending-limits`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -153,7 +153,7 @@ export default function OrganizationDetail() {
   const { data: invitesData } = useQuery({
     queryKey: ["portal-org-invites", orgId],
     queryFn: async () => {
-      const res = await authFetch(`/portal/organizations/${orgId}/invites`);
+      const res = await authFetch(`/api/portal/organizations/${orgId}/invites`);
       if (!res.ok) throw new Error("Failed to load");
       return (await res.json()) as { invites: Invite[] };
     },
@@ -162,7 +162,7 @@ export default function OrganizationDetail() {
 
   const sendInvite = useMutation({
     mutationFn: async () => {
-      const res = await authFetch(`/portal/organizations/${orgId}/invites`, {
+      const res = await authFetch(`/api/portal/organizations/${orgId}/invites`, {
         method: "POST",
         body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
       });
@@ -178,7 +178,7 @@ export default function OrganizationDetail() {
 
   const revokeInvite = useMutation({
     mutationFn: async (inviteId: number) => {
-      const res = await authFetch(`/portal/organizations/${orgId}/invites/${inviteId}`, { method: "DELETE" });
+      const res = await authFetch(`/api/portal/organizations/${orgId}/invites/${inviteId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["portal-org-invites", orgId] }),
@@ -186,7 +186,7 @@ export default function OrganizationDetail() {
 
   const removeMember = useMutation({
     mutationFn: async (userId: number) => {
-      const res = await authFetch(`/portal/organizations/${orgId}/members/${userId}`, { method: "DELETE" });
+      const res = await authFetch(`/api/portal/organizations/${orgId}/members/${userId}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["portal-org", orgId] }),
@@ -195,7 +195,7 @@ export default function OrganizationDetail() {
 
   const changeRole = useMutation({
     mutationFn: async (params: { userId: number; role: string }) => {
-      const res = await authFetch(`/portal/organizations/${orgId}/members/${params.userId}`, {
+      const res = await authFetch(`/api/portal/organizations/${orgId}/members/${params.userId}`, {
         method: "PATCH", body: JSON.stringify({ role: params.role }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
@@ -206,7 +206,7 @@ export default function OrganizationDetail() {
 
   const rename = useMutation({
     mutationFn: async () => {
-      const res = await authFetch(`/portal/organizations/${orgId}`, { method: "PATCH", body: JSON.stringify({ name: newName }) });
+      const res = await authFetch(`/api/portal/organizations/${orgId}`, { method: "PATCH", body: JSON.stringify({ name: newName }) });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => {
@@ -218,7 +218,7 @@ export default function OrganizationDetail() {
 
   const deleteOrg = useMutation({
     mutationFn: async () => {
-      const res = await authFetch(`/portal/organizations/${orgId}`, { method: "DELETE" });
+      const res = await authFetch(`/api/portal/organizations/${orgId}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
     },
     onSuccess: () => {

@@ -18,7 +18,7 @@ export default function AcceptInvite() {
     setState("loading");
     setError(null);
     try {
-      const res = await authFetch(`/portal/organizations/invites/${token}/accept`, { method: "POST" });
+      const res = await authFetch(`/api/portal/organizations/invites/${token}/accept`, { method: "POST" });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
       const json = await res.json() as { organizationId: number };
       setState("success");
