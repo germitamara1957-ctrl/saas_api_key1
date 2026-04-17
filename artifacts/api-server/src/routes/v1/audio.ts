@@ -15,7 +15,8 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ok = file.mimetype.startsWith("audio/") || file.mimetype === "video/webm" || file.mimetype === "application/octet-stream";
-    cb(ok ? null : new Error("Only audio files are allowed"), ok);
+    if (ok) cb(null, true);
+    else cb(new Error("Only audio files are allowed"));
   },
 });
 

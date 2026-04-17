@@ -547,3 +547,17 @@ User wanted maximum flexibility for n8n integration: separate "Models" lists per
 5. **OpenAPI spec updated** to document the `type` query param and all new dedicated endpoints.
 
 No route conflicts (router order: models before videos/images/audio routers, so `/v1/videos/models` resolves before `/v1/videos/:id`). Architect re-reviewed and approved after validation tightening.
+
+### Session 23 — Tech debt cleanup (TS errors, multer types, unified billing)
+
+User mandate: "لا اريد اي ديون تقنية" (no technical debt). Cleared **22 → 0** TypeScript errors and unified billing surface.
+
+1. **Composite project rebuild** — `lib/db` and `lib/api-zod` had stale `.tsbuildinfo` causing `TS6305` (declarations not emitted). Cleared buildinfo and ran `tsc -b --force` to regenerate `dist/` for both libs.
+2. **Multer `fileFilter` callback signatures** (`audio.ts`, `imagesEdits.ts`) — multer's overloaded `FileFilterCallback` requires either `cb(null, true|false)` OR `cb(error)`, never `cb(error, false)`. Split into explicit `if (ok) cb(null, true); else cb(new Error(...))` branches.
+3. **Unified billing on `/v1/generate` and `/v1/images/generations`** — both routes previously used raw `db.transaction(...)` blocks duplicating the deduct+log+refund logic. Refactored to call `deductAndLog(apiKey.billingTarget, ...)` from `chatUtils.ts`, which:
+   - Routes user vs org billing automatically via `BillingTarget` (resolved by `apiKeyAuth` middleware).
+   - Stamps `usage_logs.organization_id` correctly when key is org-bound.
+   - Keeps refunds atomic (single `UPDATE ... SET balance = balance + $refund` query).
+4. **Verified zero new test regressions** — 52 pre-existing test failures (vitest 4 migration debt + missing `billingTarget` in mocks) confirmed unchanged by reverting `generate.ts` to HEAD: identical 9/9 failures. Test infrastructure cleanup is its own separate scope.
+
+Architect approved. Net diff: **−56 LOC** across 4 route files. Org-level billing now works on image/text generation endpoints (was previously user-only).

@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, sql, and } from "drizzle-orm";
-import { db, usersTable, usageLogsTable } from "@workspace/db";
+import { db, usageLogsTable } from "@workspace/db";
 import { GenerateContentBody } from "@workspace/api-zod";
 import { requireApiKey } from "../../middlewares/apiKeyAuth";
 import { checkRateLimit } from "../../lib/rateLimit";
@@ -8,7 +7,7 @@ import { generateImageWithImagen, normalizeToPlanModelId } from "../../lib/verte
 import { calculateImageCost } from "../../lib/billing";
 import { generateRequestId } from "../../lib/crypto";
 import { dispatchWebhooks } from "../../lib/webhookDispatcher";
-import { isModelInPlan } from "../../lib/chatUtils";
+import { deductAndLog, isModelInPlan } from "../../lib/chatUtils";
 
 const router: IRouter = Router();
 
@@ -107,41 +106,13 @@ router.post("/v1/generate", requireApiKey, async (req, res): Promise<void> => {
     return;
   }
 
-  // Atomically deduct + log in a single transaction (split-balance logic)
-  let sufficient = true;
-  await db.transaction(async (tx) => {
-    const [deducted] = modelInPlan
-      ? await tx
-          .update(usersTable)
-          .set({
-            creditBalance: sql`GREATEST(${usersTable.creditBalance} - ${costUsd}, 0)`,
-            topupCreditBalance: sql`${usersTable.topupCreditBalance} - GREATEST(${costUsd} - ${usersTable.creditBalance}, 0)`,
-          })
-          .where(and(eq(usersTable.id, apiKey.userId), sql`(${usersTable.creditBalance} + ${usersTable.topupCreditBalance}) >= ${costUsd}`))
-          .returning({ creditBalance: usersTable.creditBalance })
-      : await tx
-          .update(usersTable)
-          .set({ topupCreditBalance: sql`${usersTable.topupCreditBalance} - ${costUsd}` })
-          .where(and(eq(usersTable.id, apiKey.userId), sql`${usersTable.topupCreditBalance} >= ${costUsd}`))
-          .returning({ creditBalance: usersTable.creditBalance });
-
-    if (!deducted) {
-      sufficient = false;
-      await tx.insert(usageLogsTable).values({
-        apiKeyId: apiKey.id, model, inputTokens: 0, outputTokens: sampleCount,
-        totalTokens: sampleCount, costUsd: 0, requestId, status: "rejected",
-        errorMessage: modelInPlan
-          ? "Insufficient credits (concurrent request exhausted balance)"
-          : `Insufficient top-up credit — model "${model}" is out-of-plan`,
-      });
-      return;
-    }
-
-    await tx.insert(usageLogsTable).values({
-      apiKeyId: apiKey.id, model, inputTokens: 0, outputTokens: sampleCount,
-      totalTokens: sampleCount, costUsd, requestId, status: "success", errorMessage: null,
-    });
-  });
+  // Atomically deduct + log via the unified billing helper. This routes the
+  // debit to the correct target (user OR organization) based on
+  // apiKey.billingTarget, mirroring the pattern used in /v1/chat, /v1/audio,
+  // /v1/embeddings, /v1/images/edits, and /v1/responses.
+  const sufficient = await deductAndLog(
+    apiKey.billingTarget, apiKey.id, model, requestId, 0, sampleCount, costUsd, { modelInPlan },
+  );
 
   if (!sufficient) {
     res.status(402).json({ error: "Insufficient credits to complete this request." });
