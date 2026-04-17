@@ -573,3 +573,15 @@ Fix:
 4. **`resetLoginLimit` after successful auth** is now non-blocking — its failure logs `warn` and the user still gets logged in.
 
 Architect approved. Future work: wrap the `db.transaction` blocks (register, account deletion) in `withDbRetry` to handle commit-time serialization failures.
+
+### Session 25 — Admin-managed YouTube tutorial videos on public Docs page
+
+Goal: let new users watch onboarding videos directly on the API Documentation page without logging in.
+
+Implementation:
+1. **Admin settings backend** (`routes/admin/settings.ts`): added `docs_videos` key (JSON array of `{title, url}`, max 50), validated by Zod with a shared `httpUrl` schema that **rejects any URL whose protocol is not `http:` or `https:`** (blocks stored-XSS via `javascript:` / `data:` schemes).
+2. **Public read endpoint** (`routes/portal/docs.ts`, NEW): `GET /portal/docs/videos` (mounted **before** the portal `requireAuth` middleware in `routes/index.ts`) so it is reachable without auth. Performs **defense-in-depth re-validation** with `isSafeHttpUrl()` — drops any legacy/manually-edited row whose URL isn't http(s) before sending to the client.
+3. **Admin UI** (`pages/admin/Settings.tsx`): new Video Tutorials Card with title/URL inputs, add/remove/save handlers; client-side URL + protocol validation toasts before the API call.
+4. **Public Docs page** (`pages/portal/Docs.tsx`): fetches the videos on mount (race-safe via cancellation flag), renders a Card with embedded YouTube iframes. `extractYouTubeId()` parses `youtu.be/`, `youtube.com/watch?v=`, `embed/`, `shorts/` formats and validates the 11-char ID via strict regex before constructing the iframe `src`. Non-YouTube URLs fall back to `<a target="_blank" rel="noopener noreferrer">`. Section is hidden when the videos array is empty.
+
+Architect approved (PASS) after the read-path defense-in-depth was added. Net effect: 4 files, +250 / −9 LOC. Zero new tech debt.

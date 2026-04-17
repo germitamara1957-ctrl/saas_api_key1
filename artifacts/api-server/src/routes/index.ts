@@ -20,6 +20,7 @@ import portalPromoCodesRouter from "./portal/promoCodes";
 import portalWebhooksRouter from "./portal/webhooks";
 import portalLogsRouter from "./portal/logs";
 import portalOrganizationsRouter from "./portal/organizations";
+import portalDocsRouter from "./portal/docs";
 
 import statusRouter from "./status";
 
@@ -69,6 +70,7 @@ router.use(adminIncidentsRouter);
 
 // Portal routes — login is public, /me /api-keys /usage require portal JWT
 router.use(portalAuthRouter);
+router.use(portalDocsRouter); // public — videos shown on /docs page for new users
 router.use("/portal/me", requireAuth);
 router.use("/portal/api-keys", requireAuth);
 router.use("/portal/usage", requireAuth);

@@ -6,11 +6,45 @@ import { Button } from "@/components/ui/button";
 import {
   Copy, CheckCircle2, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useToast } from "@/hooks/use-toast";
 import i18n from "@/i18n";
 
 const GATEWAY_URL = window.location.origin;
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface DocsVideo {
+  title: string;
+  url: string;
+}
+
+/**
+ * Extracts YouTube video ID from common URL formats:
+ *   https://www.youtube.com/watch?v=ID
+ *   https://youtu.be/ID
+ *   https://www.youtube.com/embed/ID
+ *   https://www.youtube.com/shorts/ID
+ * Returns null for non-YouTube URLs (caller should fall back to a plain link).
+ */
+function extractYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtu.be") {
+      const id = u.pathname.slice(1).split("/")[0];
+      return /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+    }
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      const v = u.searchParams.get("v");
+      if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) return v;
+      const m = u.pathname.match(/^\/(embed|shorts|v)\/([a-zA-Z0-9_-]{11})/);
+      if (m) return m[2];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
@@ -473,6 +507,22 @@ export default function PortalDocs() {
 
   const [sortMode, setSortMode] = useState<SortMode>("default");
 
+  const [videos, setVideos] = useState<DocsVideo[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/portal/docs/videos`, { credentials: "include" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ videos: DocsVideo[] }>) : { videos: [] }))
+      .then((data) => {
+        if (!cancelled) setVideos(Array.isArray(data.videos) ? data.videos : []);
+      })
+      .catch(() => {
+        // Non-critical: tutorials section is optional. Silently hide on error.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const maxQuality = Math.max(...ALL_MODELS.map((m) => m.quality));
 
   const sortedModels = sortModels(ALL_MODELS, sortMode);
@@ -795,6 +845,51 @@ console.log("MP4 size (bytes):", mp4.size);`;
           </div>
         </CardContent>
       </Card>
+
+      {/* Video Tutorials — admin-managed; only renders when at least one video is configured */}
+      {videos.length > 0 && (
+        <Card data-testid="card-video-tutorials">
+          <CardHeader>
+            <CardTitle className="text-base">{isAr ? "شروحات بالفيديو" : "Video Tutorials"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-6 sm:grid-cols-2">
+              {videos.map((v, i) => {
+                const ytId = extractYouTubeId(v.url);
+                return (
+                  <div key={i} className="space-y-2" data-testid={`video-tutorial-${i}`}>
+                    <h3 className="text-sm font-semibold leading-tight" data-testid={`video-title-${i}`}>{v.title}</h3>
+                    {ytId ? (
+                      <div className="aspect-video w-full overflow-hidden rounded-md border bg-muted">
+                        <iframe
+                          src={`https://www.youtube.com/embed/${ytId}`}
+                          title={v.title}
+                          loading="lazy"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          referrerPolicy="strict-origin-when-cross-origin"
+                          className="h-full w-full border-0"
+                          data-testid={`video-iframe-${i}`}
+                        />
+                      </div>
+                    ) : (
+                      <a
+                        href={v.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary underline break-all"
+                        data-testid={`video-link-${i}`}
+                      >
+                        {v.url}
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Models Reference */}
       <div className="space-y-3">

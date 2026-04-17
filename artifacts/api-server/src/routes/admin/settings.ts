@@ -16,7 +16,30 @@ const ALLOWED_KEYS = new Set([
   "smtp_pass",
   "smtp_from",
   "app_base_url",
+  "docs_videos",
 ]);
+
+const httpUrl = z
+  .string()
+  .trim()
+  .url()
+  .max(2048)
+  .refine(
+    (s) => {
+      try {
+        const proto = new URL(s).protocol;
+        return proto === "http:" || proto === "https:";
+      } catch {
+        return false;
+      }
+    },
+    { message: "URL must use http:// or https://" },
+  );
+
+const DocsVideoSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  url: httpUrl,
+});
 
 const UpdateSettingsBody = z.object({
   smtp_host: z.string().max(253).optional(),
@@ -25,7 +48,10 @@ const UpdateSettingsBody = z.object({
   smtp_pass: z.string().max(500).optional(),
   smtp_from: z.string().max(320).optional(),
   app_base_url: z.string().url().max(2048).optional(),
+  docs_videos: z.array(DocsVideoSchema).max(50).optional(),
 });
+
+const JSON_KEYS = new Set(["docs_videos"]);
 
 router.get("/admin/settings", requireAdmin, async (_req, res): Promise<void> => {
   const rows = await db
@@ -35,19 +61,25 @@ router.get("/admin/settings", requireAdmin, async (_req, res): Promise<void> => 
       eq(systemSettingsTable.key, systemSettingsTable.key)
     );
 
-  const result: Record<string, string | null> = {};
+  const result: Record<string, unknown> = {};
   for (const row of rows) {
     if (!ALLOWED_KEYS.has(row.key)) continue;
     if (SENSITIVE_KEYS.has(row.key)) {
       result[row.key] = row.value ? "••••••••" : null;
+    } else if (JSON_KEYS.has(row.key)) {
+      try {
+        result[row.key] = row.value ? JSON.parse(row.value) : null;
+      } catch {
+        result[row.key] = null;
+      }
     } else {
       result[row.key] = row.value;
     }
   }
 
-  const missing: Record<string, string | null> = {};
+  const missing: Record<string, unknown> = {};
   for (const key of ALLOWED_KEYS) {
-    if (!(key in result)) missing[key] = null;
+    if (!(key in result)) missing[key] = JSON_KEYS.has(key) ? [] : null;
   }
 
   res.json({ ...missing, ...result });
@@ -66,7 +98,8 @@ router.put("/admin/settings", requireAdmin, async (req, res): Promise<void> => {
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined) continue;
     const isSensitive = SENSITIVE_KEYS.has(k);
-    const strVal = String(v);
+    const isJson = JSON_KEYS.has(k);
+    const strVal = isJson ? JSON.stringify(v) : String(v);
 
     if (isSensitive && strVal === "••••••••") {
       continue;

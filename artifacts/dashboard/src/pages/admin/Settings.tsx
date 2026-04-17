@@ -4,7 +4,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, Mail, CheckCircle2, Send, Globe } from "lucide-react";
+import { Loader2, Save, Mail, CheckCircle2, Send, Globe, Video, Plus, Trash2 } from "lucide-react";
+
+interface DocsVideo {
+  title: string;
+  url: string;
+}
+
+interface SettingsResponse {
+  smtp_host: string | null;
+  smtp_port: string | null;
+  smtp_user: string | null;
+  smtp_pass: string | null;
+  smtp_from: string | null;
+  app_base_url: string | null;
+  docs_videos: DocsVideo[] | null;
+}
 
 interface SmtpSettings {
   smtp_host: string | null;
@@ -17,13 +32,13 @@ interface SmtpSettings {
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-async function fetchSettings(): Promise<SmtpSettings> {
+async function fetchSettings(): Promise<SettingsResponse> {
   const res = await fetch(`${API_BASE}/api/admin/settings`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to load settings");
-  return res.json() as Promise<SmtpSettings>;
+  return res.json() as Promise<SettingsResponse>;
 }
 
-async function saveSettings(data: Record<string, string>): Promise<void> {
+async function saveSettings(data: Record<string, unknown>): Promise<void> {
   const res = await fetch(`${API_BASE}/api/admin/settings`, {
     method: "PUT",
     credentials: "include",
@@ -66,6 +81,9 @@ export default function AdminSettings() {
     app_base_url: "",
   });
 
+  const [videos, setVideos] = useState<DocsVideo[]>([]);
+  const [savingVideos, setSavingVideos] = useState(false);
+
   useEffect(() => {
     fetchSettings()
       .then((data) => {
@@ -77,12 +95,68 @@ export default function AdminSettings() {
           smtp_from: data.smtp_from ?? "",
           app_base_url: data.app_base_url ?? "",
         });
+        setVideos(Array.isArray(data.docs_videos) ? data.docs_videos : []);
       })
       .catch(() => {
         toast({ title: "Error", description: "Could not load settings", variant: "destructive" });
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const handleVideoChange = (index: number, field: "title" | "url", value: string) => {
+    setVideos((vs) => vs.map((v, i) => (i === index ? { ...v, [field]: value } : v)));
+  };
+
+  const addVideo = () => {
+    setVideos((vs) => [...vs, { title: "", url: "" }]);
+  };
+
+  const removeVideo = (index: number) => {
+    setVideos((vs) => vs.filter((_, i) => i !== index));
+  };
+
+  const handleSaveVideos = async () => {
+    const cleaned = videos
+      .map((v) => ({ title: v.title.trim(), url: v.url.trim() }))
+      .filter((v) => v.title.length > 0 && v.url.length > 0);
+
+    for (const v of cleaned) {
+      let proto: string;
+      try {
+        proto = new URL(v.url).protocol;
+      } catch {
+        toast({
+          title: "Invalid URL",
+          description: `"${v.url}" is not a valid URL`,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (proto !== "http:" && proto !== "https:") {
+        toast({
+          title: "Invalid URL scheme",
+          description: `"${v.url}" must use http:// or https://`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    setSavingVideos(true);
+    try {
+      await saveSettings({ docs_videos: cleaned });
+      setVideos(cleaned);
+      toast({ title: "Saved", description: "Video tutorials saved successfully." });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to save videos",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingVideos(false);
+    }
+  };
 
   const handleChange = (key: keyof SmtpSettings) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -183,6 +257,69 @@ export default function AdminSettings() {
                 <Save className="h-4 w-4 mr-2" />
               )}
               {saved ? "Saved!" : "Save Settings"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Video className="h-5 w-5 text-primary" />
+            <CardTitle>Video Tutorials</CardTitle>
+          </div>
+          <CardDescription>
+            Add YouTube (or other) tutorial video links shown to developers on the API Documentation page. Great for onboarding new users.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {videos.length === 0 && (
+            <p className="text-sm text-muted-foreground italic">
+              No videos yet — click "Add video" to add a tutorial link.
+            </p>
+          )}
+          {videos.map((v, i) => (
+            <div key={i} className="flex gap-2 items-end" data-testid={`video-row-${i}`}>
+              <div className="flex-1 space-y-2">
+                <Label htmlFor={`video-title-${i}`} className="text-xs">Title</Label>
+                <Input
+                  id={`video-title-${i}`}
+                  placeholder="Getting Started with the AI Gateway"
+                  value={v.title}
+                  onChange={(e) => handleVideoChange(i, "title", e.target.value)}
+                  data-testid={`input-video-title-${i}`}
+                />
+              </div>
+              <div className="flex-1 space-y-2">
+                <Label htmlFor={`video-url-${i}`} className="text-xs">YouTube URL</Label>
+                <Input
+                  id={`video-url-${i}`}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={v.url}
+                  onChange={(e) => handleVideoChange(i, "url", e.target.value)}
+                  type="url"
+                  data-testid={`input-video-url-${i}`}
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => removeVideo(i)}
+                aria-label="Remove video"
+                data-testid={`button-remove-video-${i}`}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </div>
+          ))}
+          <div className="flex items-center gap-3 pt-2">
+            <Button variant="outline" onClick={addVideo} data-testid="button-add-video">
+              <Plus className="h-4 w-4 mr-2" />
+              Add video
+            </Button>
+            <Button onClick={handleSaveVideos} disabled={savingVideos} data-testid="button-save-videos">
+              {savingVideos ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+              Save videos
             </Button>
           </div>
         </CardContent>
