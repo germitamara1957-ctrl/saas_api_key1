@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, Mail, CheckCircle2, Send, Globe, Video, Plus, Trash2 } from "lucide-react";
+import { Loader2, Save, Mail, CheckCircle2, Send, Globe, Video, Plus, Trash2, ShieldCheck } from "lucide-react";
 
 interface DocsVideo {
   title: string;
@@ -448,6 +448,156 @@ export default function AdminSettings() {
           </div>
         </CardContent>
       </Card>
+
+      <TwoFactorCard />
     </div>
+  );
+}
+
+function TwoFactorCard() {
+  const { toast } = useToast();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [setupData, setSetupData] = useState<{ qrDataUrl: string; secret: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/2fa/status", { credentials: "include" });
+        if (!res.ok) return;
+        const d = await res.json();
+        setEnabled(Boolean(d.enabled));
+      } catch {
+        setEnabled(false);
+      }
+    })();
+  }, []);
+
+  const beginSetup = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/2fa/setup", { method: "POST", credentials: "include" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Failed to start 2FA setup");
+      setSetupData({ qrDataUrl: d.qrDataUrl, secret: d.secret });
+    } catch (e) {
+      toast({ title: "2FA setup failed", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verify = async () => {
+    if (!/^[0-9]{6}$/.test(code)) {
+      toast({ title: "Enter the 6-digit code from your authenticator app", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/2fa/verify", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Verification failed");
+      setEnabled(true);
+      setSetupData(null);
+      setCode("");
+      toast({ title: "Two-factor authentication enabled" });
+    } catch (e) {
+      toast({ title: "Verification failed", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    if (!/^[0-9]{6}$/.test(code)) {
+      toast({ title: "Enter your current 6-digit code to disable 2FA", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/2fa/disable", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Failed to disable");
+      setEnabled(false);
+      setCode("");
+      toast({ title: "Two-factor authentication disabled" });
+    } catch (e) {
+      toast({ title: "Failed to disable 2FA", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5 text-primary" />
+          <CardTitle>Two-Factor Authentication (TOTP)</CardTitle>
+        </div>
+        <CardDescription>
+          Add a second factor (Google Authenticator, 1Password, Authy) to your admin login.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {enabled === null ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : enabled ? (
+          <>
+            <div className="flex items-center gap-2 text-emerald-600">
+              <CheckCircle2 className="h-4 w-4" />
+              <span className="font-medium text-sm">2FA is enabled on this account.</span>
+            </div>
+            <div className="space-y-2 max-w-sm">
+              <Label>Disable 2FA — enter current 6-digit code</Label>
+              <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="123456" />
+              <Button variant="destructive" onClick={disable} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Disable 2FA
+              </Button>
+            </div>
+          </>
+        ) : setupData ? (
+          <>
+            <p className="text-sm">
+              Scan this QR code with your authenticator app, then enter the 6-digit code to confirm.
+            </p>
+            <img src={setupData.qrDataUrl} alt="TOTP QR code" className="border rounded-md p-2 bg-white" width={220} height={220} />
+            <p className="text-xs text-muted-foreground">
+              Or enter this secret manually: <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-xs">{setupData.secret}</code>
+            </p>
+            <div className="space-y-2 max-w-sm">
+              <Label>Verification code</Label>
+              <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="123456" />
+              <div className="flex gap-2">
+                <Button onClick={verify} disabled={busy || code.length !== 6}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                  Verify & Enable
+                </Button>
+                <Button variant="outline" onClick={() => { setSetupData(null); setCode(""); }} disabled={busy}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <Button onClick={beginSetup} disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
+            Enable 2FA
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

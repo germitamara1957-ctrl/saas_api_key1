@@ -30,8 +30,28 @@ app.set("trust proxy", 1);
 // ── Security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.) ──
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        // shadcn/ui + Vite need inline styles; YouTube iframes load images from i.ytimg.com
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        // Allow YouTube embeds in the public Docs page (admin-managed video tutorials)
+        frameSrc: ["'self'", "https://www.youtube.com", "https://www.youtube-nocookie.com"],
+        // Allow self-hosted scripts; remove this if you can drop inline scripts
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        connectSrc: ["'self'", "https://*.googleapis.com", "https://*.sentry.io"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'self'"],
+        upgradeInsecureRequests: [],
+      },
+    },
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false,
   }),
 );
 

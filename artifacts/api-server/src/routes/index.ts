@@ -11,6 +11,7 @@ import adminModelCostsRouter from "./admin/modelCosts";
 import adminAuditLogRouter from "./admin/auditLog";
 import adminPromoCodesRouter from "./admin/promoCodes";
 import adminSettingsRouter from "./admin/settings";
+import adminTwoFaRouter from "./admin/twofa";
 import adminIncidentsRouter from "./admin/incidents";
 
 import portalAuthRouter from "./portal/auth";
@@ -57,6 +58,7 @@ router.use("/admin/audit-log", adminRateLimit, requireAdmin);
 router.use("/admin/promo-codes", adminRateLimit, requireAdmin);
 router.use("/admin/settings", adminRateLimit, requireAdmin);
 router.use("/admin/incidents", adminRateLimit, requireAdmin);
+router.use("/admin/2fa", adminRateLimit, requireAdmin);
 router.use(adminProvidersRouter);
 router.use(adminPlansRouter);
 router.use(adminUsersRouter);
@@ -67,6 +69,7 @@ router.use(adminAuditLogRouter);
 router.use(adminPromoCodesRouter);
 router.use(adminSettingsRouter);
 router.use(adminIncidentsRouter);
+router.use(adminTwoFaRouter);
 
 // Portal routes — login is public, /me /api-keys /usage require portal JWT
 router.use(portalAuthRouter);
@@ -88,7 +91,12 @@ router.use(portalOrganizationsRouter);
 
 // V1 proxy routes — api key auth is applied inline per route
 import { captureRequestResponse } from "../middlewares/logCapture";
+import { idempotency } from "../middlewares/idempotency";
 router.use("/v1", captureRequestResponse);
+// Idempotency runs *after* apiKeyAuth (mounted inline per route) so it can
+// scope cache keys to (apiKeyId, idempotencyKey). When called before auth, it
+// no-ops and forwards. Mount it here so it sees req.apiKey set by per-route auth.
+router.use("/v1", idempotency);
 router.use(v1ModelsRouter);
 router.use(v1ChatRouter);
 router.use(v1ResponsesRouter);

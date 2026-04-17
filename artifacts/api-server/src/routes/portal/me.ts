@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { eq, sum, count, gte, inArray, and, sql } from "drizzle-orm";
-import { db, usersTable, apiKeysTable, usageLogsTable, plansTable } from "@workspace/db";
+import { db, usersTable, apiKeysTable, usageLogsTable, plansTable, webhooksTable } from "@workspace/db";
 import { generateApiKey, encryptApiKey, decryptApiKey } from "../../lib/crypto";
+import JSZip from "jszip";
 
 const router: IRouter = Router();
 
@@ -364,6 +365,170 @@ router.patch("/portal/api-keys/:id", async (req, res): Promise<void> => {
     rpmLimit: updated.rpmLimit,
     monthlySpendLimitUsd: updated.monthlySpendLimitUsd,
   });
+});
+
+// POST /portal/api-keys/:id/rotate
+// Atomically issue a new API key and mark the old one with `expiresAt = now + 24h`
+// so existing client deployments have a 24h grace window to roll over.
+router.post("/portal/api-keys/:id/rotate", async (req, res): Promise<void> => {
+  const userId = Number(req.authUser!.sub);
+  const keyId = Number(req.params.id);
+  if (!Number.isInteger(keyId) || keyId <= 0) {
+    res.status(400).json({ error: "Invalid key ID" });
+    return;
+  }
+
+  const [oldKey] = await db
+    .select()
+    .from(apiKeysTable)
+    .where(and(eq(apiKeysTable.id, keyId), eq(apiKeysTable.userId, userId)))
+    .limit(1);
+  if (!oldKey) {
+    res.status(404).json({ error: "API key not found" });
+    return;
+  }
+  if (!oldKey.isActive) {
+    res.status(409).json({ error: "Cannot rotate a revoked key" });
+    return;
+  }
+
+  const { rawKey, keyHash, keyPrefix } = generateApiKey();
+  const keyEncrypted = encryptApiKey(rawKey);
+  const graceUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  const newKey = await db.transaction(async (tx) => {
+    // Old key keeps working until expiresAt
+    await tx.update(apiKeysTable)
+      .set({ expiresAt: graceUntil })
+      .where(eq(apiKeysTable.id, oldKey.id));
+
+    const [created] = await tx.insert(apiKeysTable).values({
+      userId,
+      planId: oldKey.planId,
+      keyPrefix,
+      keyHash,
+      keyEncrypted,
+      name: oldKey.name,
+      isActive: true,
+      rpmLimit: oldKey.rpmLimit,
+      monthlySpendLimitUsd: oldKey.monthlySpendLimitUsd,
+      // The new key inherits the remaining credit balance of the old key.
+      creditBalance: oldKey.creditBalance,
+    }).returning();
+
+    return created!;
+  });
+
+  res.status(201).json({
+    id: newKey.id,
+    keyPrefix: newKey.keyPrefix,
+    fullKey: rawKey,
+    name: newKey.name,
+    isActive: newKey.isActive,
+    createdAt: newKey.createdAt,
+    rotatedFrom: oldKey.id,
+    oldKeyExpiresAt: graceUntil.toISOString(),
+  });
+});
+
+// GET /portal/me/export — GDPR data portability
+// Returns a single ZIP containing JSON files: profile, api-keys (no secrets),
+// usage logs (last 90 days), webhooks (no secrets), spending stats.
+router.get("/portal/me/export", async (req, res): Promise<void> => {
+  const userId = Number(req.authUser!.sub);
+
+  const [profile] = await db.select({
+    id: usersTable.id,
+    email: usersTable.email,
+    name: usersTable.name,
+    role: usersTable.role,
+    isActive: usersTable.isActive,
+    creditBalance: usersTable.creditBalance,
+    topupCreditBalance: usersTable.topupCreditBalance,
+    emailVerified: usersTable.emailVerified,
+    currentPlanId: usersTable.currentPlanId,
+    currentPeriodStartedAt: usersTable.currentPeriodStartedAt,
+    currentPeriodEnd: usersTable.currentPeriodEnd,
+    dailySpendLimitUsd: usersTable.dailySpendLimitUsd,
+    monthlySpendLimitUsd: usersTable.monthlySpendLimitUsd,
+    spendAlertThreshold: usersTable.spendAlertThreshold,
+    createdAt: usersTable.createdAt,
+    updatedAt: usersTable.updatedAt,
+  }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+
+  if (!profile) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const apiKeys = await db.select({
+    id: apiKeysTable.id,
+    planId: apiKeysTable.planId,
+    keyPrefix: apiKeysTable.keyPrefix,
+    name: apiKeysTable.name,
+    creditBalance: apiKeysTable.creditBalance,
+    isActive: apiKeysTable.isActive,
+    rpmLimit: apiKeysTable.rpmLimit,
+    monthlySpendLimitUsd: apiKeysTable.monthlySpendLimitUsd,
+    lastUsedAt: apiKeysTable.lastUsedAt,
+    revokedAt: apiKeysTable.revokedAt,
+    expiresAt: apiKeysTable.expiresAt,
+    createdAt: apiKeysTable.createdAt,
+  }).from(apiKeysTable).where(eq(apiKeysTable.userId, userId));
+
+  const keyIds = apiKeys.map((k) => k.id);
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  const usage = keyIds.length === 0 ? [] : await db.select({
+    id: usageLogsTable.id,
+    apiKeyId: usageLogsTable.apiKeyId,
+    model: usageLogsTable.model,
+    inputTokens: usageLogsTable.inputTokens,
+    outputTokens: usageLogsTable.outputTokens,
+    totalTokens: usageLogsTable.totalTokens,
+    costUsd: usageLogsTable.costUsd,
+    status: usageLogsTable.status,
+    createdAt: usageLogsTable.createdAt,
+  }).from(usageLogsTable).where(and(
+    inArray(usageLogsTable.apiKeyId, keyIds),
+    gte(usageLogsTable.createdAt, ninetyDaysAgo),
+  )).limit(10000);
+
+  const hooks = await db.select({
+    id: webhooksTable.id,
+    url: webhooksTable.url,
+    events: webhooksTable.events,
+    isActive: webhooksTable.isActive,
+    lastTriggeredAt: webhooksTable.lastTriggeredAt,
+    createdAt: webhooksTable.createdAt,
+  }).from(webhooksTable).where(eq(webhooksTable.userId, userId));
+
+  const zip = new JSZip();
+  const generatedAt = new Date().toISOString();
+  const meta = {
+    exportedAt: generatedAt,
+    userId,
+    notice: "GDPR data portability export. API key secrets and webhook signing secrets are intentionally excluded.",
+  };
+  zip.file("README.txt",
+    `AI Gateway data export\nGenerated: ${generatedAt}\nUser ID: ${userId}\n\n` +
+    `Files:\n  profile.json — your account profile\n  api-keys.json — your API keys (no secret material)\n` +
+    `  usage-last-90-days.json — usage logs from the last 90 days\n  webhooks.json — your registered webhooks\n` +
+    `  meta.json — export metadata\n`,
+  );
+  zip.file("meta.json", JSON.stringify(meta, null, 2));
+  zip.file("profile.json", JSON.stringify(profile, null, 2));
+  zip.file("api-keys.json", JSON.stringify(apiKeys, null, 2));
+  zip.file("usage-last-90-days.json", JSON.stringify(usage, null, 2));
+  zip.file("webhooks.json", JSON.stringify(hooks, null, 2));
+
+  const buf = await zip.generateAsync({ type: "nodebuffer" });
+
+  const filename = `ai-gateway-export-${userId}-${generatedAt.slice(0, 10)}.zip`;
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Length", buf.length.toString());
+  res.send(buf);
 });
 
 router.delete("/portal/api-keys/:id", async (req, res): Promise<void> => {

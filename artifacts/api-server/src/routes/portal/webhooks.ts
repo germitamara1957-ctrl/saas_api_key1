@@ -98,6 +98,23 @@ router.delete("/portal/webhooks/:id", async (req, res): Promise<void> => {
   res.json({ ok: true });
 });
 
+router.post("/portal/webhooks/:id/rotate-secret", async (req, res): Promise<void> => {
+  const userId = Number(req.authUser!.sub);
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "invalid id" }); return; }
+
+  const newSecret = crypto.randomBytes(24).toString("hex");
+
+  const [hook] = await db
+    .update(webhooksTable)
+    .set({ secret: newSecret, updatedAt: new Date() })
+    .where(and(eq(webhooksTable.id, id), eq(webhooksTable.userId, userId)))
+    .returning();
+
+  if (!hook) { res.status(404).json({ error: "Webhook not found" }); return; }
+  res.json(hook);
+});
+
 router.post("/portal/webhooks/:id/test", async (req, res): Promise<void> => {
   const userId = Number(req.authUser!.sub);
   const id = Number(req.params.id);

@@ -13,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Copy, Eye, EyeOff, CheckCircle2, Star, Key, Plus, ShieldCheck, Trash2, FileText, ArchiveX, SlidersHorizontal } from "lucide-react";
+import { Copy, Eye, EyeOff, CheckCircle2, Star, Key, Plus, ShieldCheck, Trash2, FileText, ArchiveX, SlidersHorizontal, RefreshCw } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { authFetch } from "@/lib/authFetch";
@@ -43,6 +43,26 @@ export default function PortalApiKeys() {
   const [limitsRpm, setLimitsRpm] = useState<string>("");
   const [limitsSpend, setLimitsSpend] = useState<string>("");
   const [savingLimits, setSavingLimits] = useState(false);
+  const [rotateKeyId, setRotateKeyId] = useState<number | null>(null);
+  const [rotatingId, setRotatingId] = useState<number | null>(null);
+  const [rotatedKey, setRotatedKey] = useState<{ fullKey: string; oldKeyExpiresAt: string } | null>(null);
+  const [rotatedKeyCopied, setRotatedKeyCopied] = useState(false);
+
+  const rotateMutation = useMutation({
+    mutationFn: async (keyId: number) => {
+      const res = await authFetch(`/api/portal/api-keys/${keyId}/rotate`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to rotate key");
+      return data as { fullKey: string; oldKeyExpiresAt: string };
+    },
+    onSuccess: (data) => {
+      setRotatedKey({ fullKey: data.fullKey, oldKeyExpiresAt: data.oldKeyExpiresAt });
+      queryClient.invalidateQueries({ queryKey: getGetPortalApiKeysQueryKey() });
+      toast({ title: "Key rotated", description: "Old key keeps working for 24 hours so you can migrate clients." });
+    },
+    onError: (e: Error) => toast({ title: "Failed to rotate key", description: e.message, variant: "destructive" }),
+    onSettled: () => { setRotatingId(null); setRotateKeyId(null); },
+  });
 
   const deleteMutation = useMutation({
     mutationFn: async (keyId: number) => {
@@ -220,6 +240,16 @@ export default function PortalApiKeys() {
                             title="Edit per-key limits"
                           >
                             <SlidersHorizontal className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            onClick={() => setRotateKeyId(key.id)}
+                            disabled={rotatingId === key.id}
+                            title="Rotate key (issue a new key, old key valid 24h)"
+                          >
+                            <RefreshCw className={`h-4 w-4 ${rotatingId === key.id ? "animate-spin" : ""}`} />
                           </Button>
                           <Button
                             variant="ghost"
@@ -488,6 +518,64 @@ export default function PortalApiKeys() {
             >
               {savingLimits ? "Saving..." : "Save"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={rotateKeyId !== null} onOpenChange={(o) => !o && setRotateKeyId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rotate this API key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              We'll issue a brand new key and grant the current one a 24-hour grace window so you can update your clients without downtime. After 24 hours the old key stops working.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rotatingId !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (rotateKeyId === null) return;
+                setRotatingId(rotateKeyId);
+                rotateMutation.mutate(rotateKeyId);
+              }}
+              disabled={rotatingId !== null}
+            >
+              {rotatingId !== null ? "Rotating..." : "Rotate Key"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={rotatedKey !== null} onOpenChange={(o) => { if (!o) { setRotatedKey(null); setRotatedKeyCopied(false); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Your new API key</DialogTitle>
+            <DialogDescription>
+              This is the only time we'll show the full key — copy it now and store it somewhere safe. The old key continues to work until {rotatedKey ? new Date(rotatedKey.oldKeyExpiresAt).toLocaleString() : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          {rotatedKey && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <code className="flex-1 px-3 py-2 bg-muted rounded-md text-xs font-mono break-all">{rotatedKey.fullKey}</code>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(rotatedKey.fullKey);
+                    setRotatedKeyCopied(true);
+                    setTimeout(() => setRotatedKeyCopied(false), 2000);
+                    toast({ title: "Copied — store it safely!" });
+                  }}
+                >
+                  {rotatedKeyCopied ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => { setRotatedKey(null); setRotatedKeyCopied(false); }}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

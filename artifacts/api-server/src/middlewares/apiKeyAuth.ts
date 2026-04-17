@@ -73,6 +73,11 @@ export async function requireApiKey(
     return;
   }
 
+  if (key.expiresAt && key.expiresAt.getTime() < Date.now()) {
+    res.status(401).json({ error: "API key has expired (rotation grace period ended). Please use the rotated key." });
+    return;
+  }
+
   if (!plan) {
     res.status(403).json({
       error: "This API key has no plan assigned. Contact your administrator to assign a plan before making API calls.",
@@ -287,6 +292,10 @@ export async function requireApiKeyLight(
 
   if (!key.isActive) {
     res.status(401).json({ error: "API key has been revoked" });
+    return;
+  }
+  if (key.expiresAt && key.expiresAt.getTime() < Date.now()) {
+    res.status(401).json({ error: "API key has expired (rotation grace period ended). Please use the rotated key." });
     return;
   }
 

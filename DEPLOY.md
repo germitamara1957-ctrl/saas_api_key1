@@ -287,6 +287,155 @@ git pull && docker compose build && docker compose up -d
 
 ---
 
+## Backups (PostgreSQL → S3)
+
+The repo ships with `scripts/backup.sh`, a self-contained `pg_dump` script that:
+
+1. Reads `DATABASE_URL` (required).
+2. Dumps to a gzipped file under `$BACKUP_DIR` (default `/var/backups/ai-gateway`).
+3. Optionally uploads to S3 via the AWS CLI when `S3_BUCKET` is set.
+4. Prunes local files older than `RETENTION_DAYS` (default 14).
+
+**Required env vars (set inside the cron environment):**
+
+| Variable          | Required | Notes                                                           |
+| ----------------- | :------: | --------------------------------------------------------------- |
+| `DATABASE_URL`    |    ✅    | Same value used by the API.                                      |
+| `BACKUP_DIR`      |    ❌    | Local destination directory (default `/var/backups/ai-gateway`). |
+| `S3_BUCKET`       |    ❌    | If set, the dump is also uploaded to `s3://$S3_BUCKET/`.         |
+| `RETENTION_DAYS`  |    ❌    | Days to keep local copies (default 14).                          |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` | ❌ | Required only if `S3_BUCKET` is set. |
+
+**Cron example — daily 03:00 UTC, hourly to S3:**
+
+```cron
+# /etc/cron.d/ai-gateway-backup
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+DATABASE_URL=postgres://gateway:CHANGE_ME@localhost:5432/ai_gateway
+BACKUP_DIR=/var/backups/ai-gateway
+RETENTION_DAYS=14
+S3_BUCKET=my-company-ai-gateway-backups
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_DEFAULT_REGION=us-east-1
+
+0 3 * * * root /opt/ai-gateway/scripts/backup.sh >> /var/log/ai-gateway-backup.log 2>&1
+```
+
+Test the script manually first:
+
+```bash
+sudo -u root DATABASE_URL=$DATABASE_URL bash /opt/ai-gateway/scripts/backup.sh
+ls -lh /var/backups/ai-gateway/
+```
+
+---
+
+## SSL / TLS — Let's Encrypt + certbot
+
+Issue and auto-renew a free certificate (assumes nginx in front of the API):
+
+```bash
+# 1. Install certbot (Debian / Ubuntu)
+sudo apt update
+sudo apt install -y certbot python3-certbot-nginx
+
+# 2. Issue the certificate (replace values)
+sudo certbot --nginx \
+  -d gateway.yourdomain.com \
+  -m ops@yourdomain.com \
+  --agree-tos --no-eff-email --redirect
+
+# 3. Verify renewal works (dry run, doesn't touch live cert)
+sudo certbot renew --dry-run
+```
+
+`certbot` installs a systemd timer (`certbot.timer`) that renews twice daily.
+Confirm it is enabled:
+
+```bash
+systemctl list-timers | grep certbot
+```
+
+**Reload nginx automatically after each renewal** by adding a deploy hook:
+
+```bash
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh >/dev/null <<'EOF'
+#!/usr/bin/env bash
+systemctl reload nginx
+EOF
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+```
+
+If you run the API behind Cloudflare or another CDN that terminates TLS for
+you, skip certbot entirely and use the CDN-managed certificate.
+
+---
+
+## Monitoring & alerts
+
+### Crash reporting — Sentry
+
+The API server initializes Sentry automatically when `SENTRY_DSN` is present
+(see `app.ts`). To enable:
+
+1. Create a project at https://sentry.io → copy the DSN.
+2. Add `SENTRY_DSN=https://...@oXXXX.ingest.sentry.io/YYYY` to `.env`.
+3. Restart the API. Errors thrown inside any request handler are reported
+   automatically; uncaught rejections are also captured.
+
+### Uptime — UptimeRobot
+
+The API exposes a public health endpoint at `GET /api/healthz` that returns
+`200 {"status":"ok",...}` only when the DB is reachable.
+
+1. Sign up at https://uptimerobot.com (free tier covers 50 monitors / 5-min checks).
+2. **Add new monitor** → type `HTTPS`, URL `https://gateway.yourdomain.com/api/healthz`.
+3. Set monitoring interval to 5 minutes.
+4. Configure alert contacts (email, Slack, SMS, etc.).
+5. Recommended: add a second monitor for `/api/status` to track provider health.
+
+---
+
+## CI/CD — GitHub Actions
+
+Two workflows ship under `.github/workflows/`:
+
+* **`ci.yml`** — runs on every push and PR. Installs dependencies, runs `pnpm
+  build` (typecheck + transpile) and any package-level `test` scripts. No
+  secrets required.
+* **`deploy.yml`** — auto-deploys to your VPS over SSH on every push to `main`.
+  Gated behind the `VPS_DEPLOY_ENABLED` repository variable so the workflow is
+  inert until you opt in.
+
+**To enable auto-deploy:**
+
+1. Generate an SSH key pair on a workstation (no passphrase):
+
+   ```bash
+   ssh-keygen -t ed25519 -C "github-actions" -f ./gh_deploy_key -N ""
+   ```
+
+2. Append the **public key** (`gh_deploy_key.pub`) to your VPS's
+   `~/.ssh/authorized_keys` for the deploy user.
+3. In GitHub → **Settings → Secrets and variables → Actions**:
+
+   | Kind     | Name           | Value                                                |
+   | -------- | -------------- | ---------------------------------------------------- |
+   | Secret   | `VPS_HOST`     | Public IP or hostname of the VPS                     |
+   | Secret   | `VPS_USER`     | SSH user (e.g. `deploy` or `root`)                   |
+   | Secret   | `VPS_SSH_KEY`  | **Contents of the private key file** (`gh_deploy_key`) |
+   | Secret   | `VPS_APP_DIR`  | Absolute path on the VPS (e.g. `/opt/ai-gateway`)    |
+   | Variable | `VPS_DEPLOY_ENABLED` | `true`                                         |
+
+4. Push to `main` — the workflow runs `git pull` then `bash deploy.sh
+   --build --restart` on the VPS. If you do not have a `deploy.sh`, edit the
+   workflow's `script:` block to suit your hosting (`docker compose pull && up
+   -d`, `pm2 reload`, etc.).
+
+---
+
 ## First Login
 
 1. Open `https://yourdomain.com/admin/login`

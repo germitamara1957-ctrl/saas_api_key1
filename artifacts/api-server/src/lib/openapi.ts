@@ -306,6 +306,91 @@ const spec = {
     "/admin/model-costs": {
       get: { tags: ["Admin Model Costs"], summary: "List model pricing", security: [{ CookieAuth: [] }], responses: { "200": { description: "Model costs" } } },
     },
+
+    // ── API key rotation (T10) ──────────────────────────────────────────────
+    "/portal/api-keys/{id}/rotate": {
+      post: {
+        tags: ["Portal Account"],
+        summary: "Rotate an API key",
+        description: "Issues a new API key with the same plan/limits and grants the old key a 24-hour grace window (`expiresAt = now + 24h`). The plaintext of the new key is returned **once**.",
+        security: [{ CookieAuth: [] }, { BearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+        responses: {
+          "201": { description: "Rotated", content: { "application/json": { schema: { type: "object", properties: { id: { type: "integer" }, fullKey: { type: "string", description: "Plain-text key — store securely." }, keyPrefix: { type: "string" }, rotatedFrom: { type: "integer" }, oldKeyExpiresAt: { type: "string", format: "date-time" } } } } } },
+          "404": { description: "Key not found" },
+          "409": { description: "Key is revoked" },
+        },
+      },
+    },
+
+    // ── GDPR data export (T04) ──────────────────────────────────────────────
+    "/portal/me/export": {
+      get: {
+        tags: ["Portal Account"],
+        summary: "Export account data (GDPR)",
+        description: "Returns a ZIP archive containing your profile, API key metadata (no secrets), webhooks (no secrets), and the last 90 days of usage logs as JSON files.",
+        security: [{ CookieAuth: [] }, { BearerAuth: [] }],
+        responses: {
+          "200": { description: "ZIP archive", content: { "application/zip": { schema: { type: "string", format: "binary" } } } },
+          "401": { description: "Not authenticated" },
+        },
+      },
+    },
+
+    // ── Webhook secret rotation (T01) ───────────────────────────────────────
+    "/portal/webhooks/{id}/rotate-secret": {
+      post: {
+        tags: ["Portal Account"],
+        summary: "Rotate a webhook signing secret",
+        description: "Generates a new HMAC secret for the webhook. Existing in-flight requests signed with the old secret will fail verification once this returns.",
+        security: [{ CookieAuth: [] }, { BearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+        responses: {
+          "200": { description: "Updated webhook" },
+          "404": { description: "Webhook not found" },
+        },
+      },
+    },
+
+    // ── Admin 2FA (T03) ─────────────────────────────────────────────────────
+    "/admin/2fa/status": {
+      get: {
+        tags: ["Admin Auth"],
+        summary: "Get 2FA status for current admin",
+        security: [{ CookieAuth: [] }, { BearerAuth: [] }],
+        responses: { "200": { description: "Status", content: { "application/json": { schema: { type: "object", properties: { enabled: { type: "boolean" } } } } } } },
+      },
+    },
+    "/admin/2fa/setup": {
+      post: {
+        tags: ["Admin Auth"],
+        summary: "Begin 2FA setup",
+        description: "Generates a new TOTP secret and returns a QR code as a data URL. 2FA stays disabled until `/admin/2fa/verify` succeeds.",
+        security: [{ CookieAuth: [] }, { BearerAuth: [] }],
+        responses: {
+          "200": { description: "Provisioning data", content: { "application/json": { schema: { type: "object", properties: { secret: { type: "string" }, qrDataUrl: { type: "string" }, otpauthUrl: { type: "string" } } } } } },
+          "409": { description: "2FA already enabled" },
+        },
+      },
+    },
+    "/admin/2fa/verify": {
+      post: {
+        tags: ["Admin Auth"],
+        summary: "Verify TOTP code & enable 2FA",
+        security: [{ CookieAuth: [] }, { BearerAuth: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string", pattern: "^[0-9]{6}$" } } } } } },
+        responses: { "200": { description: "Enabled" }, "401": { description: "Invalid code" } },
+      },
+    },
+    "/admin/2fa/disable": {
+      post: {
+        tags: ["Admin Auth"],
+        summary: "Disable 2FA",
+        security: [{ CookieAuth: [] }, { BearerAuth: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string" } } } } } },
+        responses: { "200": { description: "Disabled" }, "401": { description: "Invalid code" } },
+      },
+    },
   },
 };
 

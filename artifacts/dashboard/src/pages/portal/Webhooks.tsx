@@ -193,6 +193,19 @@ export default function PortalWebhooks() {
     onError: (e) => toast({ title: String(e instanceof Error ? e.message : e), variant: "destructive" }),
   });
 
+  const rotateMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await authFetch(`/api/portal/webhooks/${id}/rotate-secret`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to rotate secret");
+      return res.json();
+    },
+    onSuccess: () => {
+      void refetch();
+      toast({ title: "Secret rotated", description: "Old secret stops working immediately. Update your verifier with the new value." });
+    },
+    onError: (e) => toast({ title: String(e instanceof Error ? e.message : e), variant: "destructive" }),
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -275,6 +288,15 @@ if (sig !== expected) return res.status(401).send("Invalid signature");
                       disabled={testMutation.isPending}
                     >
                       <TestTube className="h-3 w-3 mr-1" />Test
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => rotateMutation.mutate(hook.id)}
+                      disabled={rotateMutation.isPending}
+                      title="Generate a new HMAC signing secret (old secret stops working immediately)"
+                    >
+                      Rotate Secret
                     </Button>
                     <Button
                       variant="ghost"

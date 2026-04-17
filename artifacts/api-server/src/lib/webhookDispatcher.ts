@@ -26,8 +26,14 @@ export interface WebhookRow {
   events: string[];
 }
 
-function sign(secret: string, body: string): string {
-  return crypto.createHmac("sha256", secret).update(body).digest("hex");
+/**
+ * Sign a webhook payload using HMAC-SHA256.
+ *
+ * The signed string is `${timestamp}.${body}` (Stripe-style) so receivers can
+ * reject replays by checking the timestamp window before verifying the digest.
+ */
+function sign(secret: string, timestamp: string, body: string): string {
+  return crypto.createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
 }
 
 export async function sendSingleWebhook(
@@ -35,7 +41,8 @@ export async function sendSingleWebhook(
   payload: WebhookPayload,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
   const body = JSON.stringify(payload);
-  const signature = sign(hook.secret, body);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = sign(hook.secret, timestamp, body);
 
   try {
     const res = await fetch(hook.url, {
@@ -43,6 +50,7 @@ export async function sendSingleWebhook(
       headers: {
         "Content-Type": "application/json",
         "X-Gateway-Signature": `sha256=${signature}`,
+        "X-Gateway-Timestamp": timestamp,
         "X-Gateway-Event": payload.event,
       },
       body,

@@ -96,6 +96,7 @@ vi.mock("../../middlewares/apiKeyAuth", () => ({
     req.apiKey = mockApiKey;
     next();
   }),
+  requireApiKeyLight: vi.fn((req, _res, next) => { req.apiKey = mockApiKey; next(); }),
 }));
 
 vi.mock("../../lib/rateLimit", () => ({

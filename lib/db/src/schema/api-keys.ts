@@ -21,6 +21,10 @@ export const apiKeysTable = pgTable("api_keys", {
   monthlySpendLimitUsd: doublePrecision("monthly_spend_limit_usd"),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  // Optional grace-period expiration set during key rotation. When the user
+  // rotates a key, the OLD key is kept active until `expiresAt` so existing
+  // deployments can roll over without downtime.
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [

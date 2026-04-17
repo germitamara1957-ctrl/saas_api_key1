@@ -26,6 +26,10 @@ export const usersTable = pgTable("users", {
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   guardrailViolations: integer("guardrail_violations").notNull().default(0),
   guardrailSuspended: boolean("guardrail_suspended").notNull().default(false),
+  // ── 2FA (TOTP) — admin accounts only by default, but available to all users.
+  // `totpSecret` is AES-256-GCM encrypted using ENCRYPTION_KEY.
+  totpSecret: text("totp_secret"),
+  totpEnabled: boolean("totp_enabled").notNull().default(false),
   // Spending limits (USD). null = no limit. Threshold is 0..1 (e.g. 0.8 = alert at 80%).
   dailySpendLimitUsd: doublePrecision("daily_spend_limit_usd"),
   monthlySpendLimitUsd: doublePrecision("monthly_spend_limit_usd"),

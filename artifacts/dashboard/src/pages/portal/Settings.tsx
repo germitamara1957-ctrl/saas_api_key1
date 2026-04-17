@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { authFetch } from "@/lib/authFetch";
-import { User, Trash2, AlertTriangle, Tag, Loader2, Wallet } from "lucide-react";
+import { User, Trash2, AlertTriangle, Tag, Loader2, Wallet, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import i18n from "@/i18n";
@@ -318,6 +318,48 @@ export default function PortalSettings() {
               )}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className={`flex flex-row items-center gap-3 space-y-0 ${isAr ? "flex-row-reverse" : ""}`}>
+          <div className="p-2 rounded-full bg-muted">
+            <Download className="h-4 w-4" />
+          </div>
+          <div>
+            <CardTitle className="text-base">{isAr ? "تصدير بياناتي (GDPR)" : "Export My Data (GDPR)"}</CardTitle>
+            <CardDescription>
+              {isAr
+                ? "نزّل أرشيفًا مضغوطًا يحوي ملفك الشخصي، مفاتيح API، الـ webhooks، وآخر 90 يومًا من السجلّات."
+                : "Download a ZIP archive with your profile, API keys, webhooks, and the last 90 days of usage logs."}
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                const res = await authFetch("/api/portal/me/export");
+                if (!res.ok) throw new Error("Export failed");
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `account-export-${new Date().toISOString().slice(0, 10)}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                toast({ title: isAr ? "تم بدء التنزيل" : "Download started" });
+              } catch (e) {
+                toast({ title: isAr ? "فشل التصدير" : "Export failed", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+              }
+            }}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            {isAr ? "تنزيل أرشيف ZIP" : "Download ZIP archive"}
+          </Button>
         </CardContent>
       </Card>
 
