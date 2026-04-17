@@ -93,7 +93,6 @@ SMTP_HOST = " smtp.gmail.com"
 SMTP_USER = "lt500950@gmail.com"
 SMTP_FROM = "AI Gateway lt500950@gmail.com"
 SMTP_PORT = "587"
-APP_BASE_URL = "https://api-key-all-1.replit.app/"
 
 [nix]
 channel = "stable-25_05"
