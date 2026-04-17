@@ -6,6 +6,9 @@ const router: IRouter = Router();
 
 export type ModelCategory = "chat" | "image" | "video" | "audio" | "embedding";
 const VALID_CATEGORIES: ReadonlySet<string> = new Set(["chat", "image", "video", "audio", "embedding"]);
+// `?type=all` is the explicit escape hatch for clients that want every model
+// regardless of category (e.g. an admin UI listing the full catalog).
+const ALL_TYPE = "all";
 
 function ownedBy(modelId: string): string {
   if (modelId.startsWith("gemini-") || modelId.startsWith("imagen-") || modelId.startsWith("veo-") || modelId.startsWith("gemma-")) return "google";
@@ -63,21 +66,34 @@ function buildModelList(category?: ModelCategory) {
 
 /**
  * Shared handler for `/v1/models` and `/models` aliases.
- * Supports `?type=chat|image|video|audio|embedding` for filtering.
- * Invalid `type` → 400 (so the user knows their typo, instead of an empty list).
+ *
+ * Default behavior: returns ONLY chat-completion models. This matches what
+ * OpenAI-compatible chat clients (n8n OpenAI Chat node, LangChain, Vercel AI
+ * SDK chat helpers, etc.) expect when populating their model dropdown — they
+ * shouldn't see Veo video, Whisper STT, TTS, Imagen, or embedding models in
+ * a chat picker. Each non-chat category has its own dedicated endpoint
+ * (`/v1/videos/models`, `/v1/audio/models`, `/v1/images/models`,
+ * `/v1/embeddings/models`) for tools that target that category.
+ *
+ * Escape hatches:
+ *   ?type=chat|image|video|audio|embedding → filter to that category
+ *   ?type=all                              → return every supported model
+ *
+ * Invalid `type` → 400 (so the user notices their typo instead of getting
+ * a silent empty list).
  */
 function handleListModels(req: Request, res: Response): void {
   const rawTypeQuery = req.query.type;
-  // No `type` param at all → return all models.
+  // No `type` param → default to chat models only (the most common caller).
   if (rawTypeQuery === undefined) {
-    res.json(buildModelList());
+    res.json(buildModelList("chat"));
     return;
   }
   // Reject array forms (e.g. ?type=chat&type=image) and non-strings outright.
   if (typeof rawTypeQuery !== "string") {
     res.status(400).json({
       error: {
-        message: "Invalid type. Provide a single value: chat, image, video, audio, or embedding.",
+        message: "Invalid type. Provide a single value: chat, image, video, audio, embedding, or all.",
         type: "invalid_request_error",
         code: "invalid_query_parameter",
         param: "type",
@@ -86,11 +102,16 @@ function handleListModels(req: Request, res: Response): void {
     return;
   }
   const rawType = rawTypeQuery.trim().toLowerCase();
+  // ?type=all → unfiltered list (full catalog).
+  if (rawType === ALL_TYPE) {
+    res.json(buildModelList());
+    return;
+  }
   // Reject empty string and unknown values.
   if (!VALID_CATEGORIES.has(rawType)) {
     res.status(400).json({
       error: {
-        message: `Invalid type "${rawType}". Must be one of: chat, image, video, audio, embedding.`,
+        message: `Invalid type "${rawType}". Must be one of: chat, image, video, audio, embedding, all.`,
         type: "invalid_request_error",
         code: "invalid_query_parameter",
         param: "type",
