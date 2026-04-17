@@ -526,3 +526,24 @@ User reported that 8-second videos fail with `503 "Visibility check was unavaila
 4. **`/v1/videos` POST handler** rewrites Veo submission failures that look transient (matching `/unavailable|503|500|504|temporarily/`) into a clean **HTTP 503 `service_unavailable`** response with message: _"Vertex AI is temporarily unavailable. Please retry your request in 30-60 seconds. (No credit was charged.)"_ — instead of the confusing `502 Bad gateway`.
 
 **Verification**: build clean, all expected strings present in compiled output, api-server restarted healthy. Architect re-review confirmed all four fixes are correct (initial review found two more edge cases — both addressed in this same batch).
+
+### Session 22 — Capability-based model filtering for n8n
+
+User wanted maximum flexibility for n8n integration: separate "Models" lists per node type (Chat / Image / Video / Audio). Implemented **both** filtering modes:
+
+1. **`?type=` query parameter** on `/v1/models` (and `/models` alias):
+   - Values: `chat | image | video | audio | embedding`
+   - Empty string, array form (`?type=a&type=b`), or unknown value → **HTTP 400** with helpful message
+2. **Dedicated per-category endpoints** — same response shape, pre-filtered:
+   - `/v1/chat/models`, `/v1/images/models`, `/v1/videos/models`, `/v1/audio/models`, `/v1/embeddings/models`
+   - Plus `/chat/models`, `/images/models`, etc. aliases for clients that set Base URL = root.
+3. **`categorizeModel(modelId)`** helper in `routes/v1/models.ts`:
+   - **video**: starts with `veo-` or `sora-`
+   - **image**: `imagen-*`, `dall-e*`, `gpt-image*`, or `*-image-preview` (catches `gemini-3.x-image-preview`)
+   - **audio**: `tts-*`, `whisper-*`
+   - **embedding**: `text-embedding-*` or `*-embedding-*`
+   - **chat**: everything else (default)
+4. `GET /v1/models/:model` now also returns a `category` field.
+5. **OpenAPI spec updated** to document the `type` query param and all new dedicated endpoints.
+
+No route conflicts (router order: models before videos/images/audio routers, so `/v1/videos/models` resolves before `/v1/videos/:id`). Architect re-reviewed and approved after validation tightening.

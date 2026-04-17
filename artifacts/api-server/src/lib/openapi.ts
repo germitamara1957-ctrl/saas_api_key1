@@ -113,13 +113,17 @@ const spec = {
       get: {
         tags: ["Models"],
         summary: "List available models",
-        description: "Returns all 23 available AI models.",
+        description: "Returns all available AI models. Filter by capability with `?type=chat|image|video|audio|embedding`. For tools that require a stable per-category Base URL (e.g. n8n), the dedicated paths `/v1/chat/models`, `/v1/images/models`, `/v1/videos/models`, `/v1/audio/models`, `/v1/embeddings/models` return the same shape pre-filtered.",
         security: [{ ApiKeyAuth: [] }],
+        parameters: [
+          { name: "type", in: "query", required: false, description: "Filter models by capability category.", schema: { type: "string", enum: ["chat", "image", "video", "audio", "embedding"] } },
+        ],
         responses: {
           "200": {
             description: "List of models",
             content: { "application/json": { schema: { type: "object", properties: { object: { type: "string", example: "list" }, data: { type: "array", items: { type: "object", properties: { id: { type: "string" }, object: { type: "string" }, created: { type: "integer" }, owned_by: { type: "string" } } } } } } } },
           },
+          "400": { description: "Invalid `type` query parameter", content: { "application/json": { schema: { "$ref": "#/components/schemas/Error" } } } },
         },
       },
     },
