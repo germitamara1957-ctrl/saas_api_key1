@@ -1,0 +1,87 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health";
+
+import adminAuthRouter from "./admin/auth";
+import adminProvidersRouter from "./admin/providers";
+import adminPlansRouter from "./admin/plans";
+import adminUsersRouter from "./admin/users";
+import adminApiKeysRouter from "./admin/apiKeys";
+import adminAnalyticsRouter from "./admin/analytics";
+import adminModelCostsRouter from "./admin/modelCosts";
+import adminAuditLogRouter from "./admin/auditLog";
+import adminPromoCodesRouter from "./admin/promoCodes";
+import adminSettingsRouter from "./admin/settings";
+
+import portalAuthRouter from "./portal/auth";
+import portalMeRouter from "./portal/me";
+import portalUsageRouter from "./portal/usage";
+import portalPromoCodesRouter from "./portal/promoCodes";
+import portalWebhooksRouter from "./portal/webhooks";
+import portalLogsRouter from "./portal/logs";
+
+import v1ChatRouter from "./v1/chat";
+import v1ResponsesRouter from "./v1/responses";
+import v1GenerateRouter from "./v1/generate";
+import v1VideoRouter from "./v1/video";
+import v1VideosRouter from "./v1/videos";
+import v1ModelsRouter from "./v1/models";
+import v1FilesRouter from "./v1/files";
+import v1EmbeddingsRouter from "./v1/embeddings";
+
+import { requireAdmin, requireAuth } from "../middlewares/adminAuth";
+import { adminRateLimit, adminAuthRateLimit } from "../middlewares/adminRateLimit";
+
+const router: IRouter = Router();
+
+router.use(healthRouter);
+
+// Admin routes — login is public (but rate-limited), everything else requires admin JWT + rate limit
+router.use("/admin/auth", adminAuthRateLimit);
+router.use(adminAuthRouter);
+router.use("/admin/providers", adminRateLimit, requireAdmin);
+router.use("/admin/plans", adminRateLimit, requireAdmin);
+router.use("/admin/users", adminRateLimit, requireAdmin);
+router.use("/admin/api-keys", adminRateLimit, requireAdmin);
+router.use("/admin/analytics", adminRateLimit, requireAdmin);
+router.use("/admin/model-costs", adminRateLimit, requireAdmin);
+router.use("/admin/audit-log", adminRateLimit, requireAdmin);
+router.use("/admin/promo-codes", adminRateLimit, requireAdmin);
+router.use("/admin/settings", adminRateLimit, requireAdmin);
+router.use(adminProvidersRouter);
+router.use(adminPlansRouter);
+router.use(adminUsersRouter);
+router.use(adminApiKeysRouter);
+router.use(adminAnalyticsRouter);
+router.use(adminModelCostsRouter);
+router.use(adminAuditLogRouter);
+router.use(adminPromoCodesRouter);
+router.use(adminSettingsRouter);
+
+// Portal routes — login is public, /me /api-keys /usage require portal JWT
+router.use(portalAuthRouter);
+router.use("/portal/me", requireAuth);
+router.use("/portal/api-keys", requireAuth);
+router.use("/portal/usage", requireAuth);
+router.use("/portal/plans", requireAuth);
+router.use("/portal/promo-codes", requireAuth);
+router.use("/portal/webhooks", requireAuth);
+router.use("/portal/logs", requireAuth);
+router.use(portalMeRouter);
+router.use(portalUsageRouter);
+router.use(portalPromoCodesRouter);
+router.use(portalWebhooksRouter);
+router.use(portalLogsRouter);
+
+// V1 proxy routes — api key auth is applied inline per route
+import { captureRequestResponse } from "../middlewares/logCapture";
+router.use("/v1", captureRequestResponse);
+router.use(v1ModelsRouter);
+router.use(v1ChatRouter);
+router.use(v1ResponsesRouter);
+router.use(v1GenerateRouter);
+router.use(v1VideoRouter);
+router.use(v1VideosRouter);
+router.use(v1FilesRouter);
+router.use(v1EmbeddingsRouter);
+
+export default router;
