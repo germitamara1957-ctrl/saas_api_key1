@@ -18,7 +18,7 @@
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/germitamara1957-ctrl/fullapikey.git /opt/ai-gateway
+git clone https://github.com/germitamara1957-ctrl/saas_api_key1.git /opt/ai-gateway
 cd /opt/ai-gateway
 ```
 
@@ -99,7 +99,7 @@ npm install -g pnpm@10 pm2
 ### 2. Clone and install dependencies
 
 ```bash
-git clone https://github.com/germitamara1957-ctrl/fullapikey.git /opt/ai-gateway
+git clone https://github.com/germitamara1957-ctrl/saas_api_key1.git /opt/ai-gateway
 cd /opt/ai-gateway
 pnpm install
 ```

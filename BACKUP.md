@@ -101,7 +101,7 @@ pm2 start ai-gateway-api
 If the server is completely lost:
 
 1. **Provision a new VPS** (same region as before)
-2. **Clone the repository**: `git clone https://github.com/germitamara1957-ctrl/fullapikey /opt/ai-gateway`
+2. **Clone the repository**: `git clone https://github.com/germitamara1957-ctrl/saas_api_key1 /opt/ai-gateway`
 3. **Restore environment**: Copy `.env` from secure storage (password manager / secrets vault)
 4. **Install dependencies**: `pnpm install && pnpm build`
 5. **Restore database**: `./scripts/restore.sh s3://bucket/latest-backup.sql.gz`
