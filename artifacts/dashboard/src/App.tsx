@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { AuthProvider } from "@/lib/auth-provider";
 
 import Landing from "@/pages/Landing";
+import Status from "@/pages/Status";
 
 import AdminLogin from "@/pages/admin/Login";
 import AdminDashboard from "@/pages/admin/Dashboard";
@@ -20,6 +21,7 @@ import AdminPricing from "@/pages/admin/Pricing";
 import AdminAuditLog from "@/pages/admin/AuditLog";
 import AdminPromoCodes from "@/pages/admin/PromoCodes";
 import AdminSettings from "@/pages/admin/Settings";
+import AdminIncidents from "@/pages/admin/Incidents";
 
 import PortalLogin from "@/pages/portal/Login";
 import PortalSignup from "@/pages/portal/Signup";
@@ -34,6 +36,9 @@ import PortalLogs from "@/pages/portal/Logs";
 import ForgotPassword from "@/pages/portal/ForgotPassword";
 import ResetPassword from "@/pages/portal/ResetPassword";
 import VerifyEmail from "@/pages/portal/VerifyEmail";
+import Organizations from "@/pages/portal/Organizations";
+import OrganizationDetail from "@/pages/portal/OrganizationDetail";
+import AcceptInvite from "@/pages/portal/AcceptInvite";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { PortalLayout } from "@/components/layout/PortalLayout";
@@ -67,7 +72,7 @@ function AdminRoutes() {
           <Route path="audit-log" element={<AdminAuditLog />} />
           <Route path="promo-codes" element={<AdminPromoCodes />} />
           <Route path="settings" element={<AdminSettings />} />
-        </Routes>
+          <Route path="incidents" element={<AdminIncidents />} /></Routes>
       </AdminLayout>
     </AuthGuard>
   );
@@ -87,6 +92,8 @@ function PortalRoutes() {
           <Route path="logs" element={<PortalLogs />} />
           <Route path="docs" element={<PortalDocs />} />
           <Route path="settings" element={<PortalSettings />} />
+          <Route path="organizations" element={<Organizations />} />
+          <Route path="organizations/:id" element={<OrganizationDetail />} />
         </Routes>
       </PortalLayout>
     </AuthGuard>
@@ -112,6 +119,8 @@ function App() {
                   <Route path="/forgot-password" element={<ForgotPassword />} />
                   <Route path="/reset-password" element={<ResetPassword />} />
                   <Route path="/verify-email" element={<VerifyEmail />} />
+                  <Route path="/status" element={<Status />} />
+                  <Route path="/portal/invite/:token" element={<AcceptInvite />} />
                   <Route path="/portal/*" element={<PortalRoutes />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>

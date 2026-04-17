@@ -1,4 +1,4 @@
-export type ModelCategory = "text" | "image" | "video" | "embedding";
+export type ModelCategory = "text" | "image" | "video" | "embedding" | "audio";
 
 export type ModelProvider =
   | "google-gemini"
@@ -48,6 +48,7 @@ export interface ModelPricing {
   thinkingPer1MTokens?: number;
   perImage?: number;
   perSecond?: number;
+  inputPer1MChars?: number;
 }
 
 export interface ModelDef {
@@ -60,6 +61,7 @@ export interface ModelDef {
   isNew?: boolean;
   isPreview?: boolean;
   comingSoon?: boolean;
+  supportsInpainting?: boolean;
 }
 
 export const MODELS: ModelDef[] = [
@@ -80,6 +82,7 @@ export const MODELS: ModelDef[] = [
   { id: "imagen-4.0-ultra-generate-001", displayName: "Imagen 4 Ultra", category: "image", provider: "google-imagen", description: "Highest-quality Imagen 4 — finest details",         pricing: { perImage: 0.06 }, isNew: true, isPreview: true },
   { id: "imagen-3.0-generate-002",       displayName: "Imagen 3",       category: "image", provider: "google-imagen", description: "Latest stable Imagen 3 — high-quality proven",      pricing: { perImage: 0.04 } },
   { id: "imagen-3.0-fast-generate-001",  displayName: "Imagen 3 Fast",  category: "image", provider: "google-imagen", description: "Faster Imagen 3 — lower cost for high-volume",      pricing: { perImage: 0.02 } },
+  { id: "imagen-3.0-capability-001",     displayName: "Imagen 3 Edit",  category: "image", provider: "google-imagen", description: "Image editing & inpainting with mask support",      pricing: { perImage: 0.04 }, isNew: true, supportsInpainting: true },
   // ─── OpenAI Image-compatible aliases (mapped to Imagen) ──────
   { id: "dall-e-2",    displayName: "DALL-E 2 (→ Imagen 3 Fast)",         category: "image", provider: "google-imagen", description: "OpenAI alias — routes to imagen-3.0-fast-generate-001",  pricing: { perImage: 0.02 } },
   { id: "dall-e-3",    displayName: "DALL-E 3 (→ Imagen 4)",              category: "image", provider: "google-imagen", description: "OpenAI alias — routes to imagen-4.0-generate-001",       pricing: { perImage: 0.04 } },
@@ -124,6 +127,10 @@ export const MODELS: ModelDef[] = [
   { id: "gpt-oss-120b", displayName: "GPT-OSS 120B", category: "text", provider: "openai-oss", description: "OpenAI open model — 120B parameters", pricing: { inputPer1MTokens: 0.09, outputPer1MTokens: 0.36 }, isNew: true, comingSoon: true },
   // ─── Qwen / Alibaba Cloud ─────────────────────────────────────
   { id: "qwen3-235b", displayName: "Qwen3 235B", category: "text", provider: "qwen", description: "Large MoE model — complex reasoning", pricing: { inputPer1MTokens: 0.22, outputPer1MTokens: 0.88 }, isNew: true, comingSoon: true },
+  // ─── Audio (Google Cloud TTS / STT) ─────────────────────────
+  { id: "tts-1",     displayName: "TTS-1 (→ Google Standard)",      category: "audio", provider: "google-gemini", description: "Text-to-speech — Google Standard voices, OpenAI-compatible",  pricing: { inputPer1MChars: 4.00 }, isNew: true },
+  { id: "tts-1-hd",  displayName: "TTS-1-HD (→ Google Studio/HD)",   category: "audio", provider: "google-gemini", description: "Text-to-speech — Studio/Chirp HD voices, premium quality",     pricing: { inputPer1MChars: 16.00 }, isNew: true },
+  { id: "whisper-1", displayName: "Whisper-1 (→ Chirp 2)",           category: "audio", provider: "google-gemini", description: "Speech-to-text — Google Chirp 2, OpenAI-compatible",            pricing: { perSecond: 0.0004 }, isNew: true },
 ];
 
 export const MODEL_IDS = MODELS.map((m) => m.id);
@@ -131,6 +138,7 @@ export const MODEL_IDS = MODELS.map((m) => m.id);
 export const TEXT_MODELS = MODELS.filter((m) => m.category === "text");
 export const IMAGE_MODELS = MODELS.filter((m) => m.category === "image");
 export const VIDEO_MODELS = MODELS.filter((m) => m.category === "video");
+export const AUDIO_MODELS = MODELS.filter((m) => m.category === "audio");
 
 export function getModel(id: string): ModelDef | undefined {
   return MODELS.find((m) => m.id === id);
@@ -142,6 +150,7 @@ export function formatModelPricing(m: ModelDef): string {
     return `$${p.inputPer1MTokens}/1M in · $${p.outputPer1MTokens}/1M out`;
   }
   if (p.perImage !== undefined) return `$${p.perImage}/image`;
+  if (p.inputPer1MChars !== undefined) return `$${p.inputPer1MChars}/1M chars`;
   if (p.perSecond !== undefined) return `$${p.perSecond}/sec`;
   return "Custom pricing";
 }

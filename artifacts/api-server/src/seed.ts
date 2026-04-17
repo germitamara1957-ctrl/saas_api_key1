@@ -77,11 +77,24 @@ const MISTRAL_MODELS = [
   "mistral-small",   // Mistral Small 3.1 (25.03)
 ];
 
+// ─── Imagen Capability (inpainting/edits) ──────────────────────────────────
+const IMAGEN_EDIT_MODELS = [
+  "imagen-3.0-capability-001",
+];
+
+// ─── Audio (TTS + STT via Google Cloud) ────────────────────────────────────
+const AUDIO_MODELS = [
+  "tts-1",
+  "tts-1-hd",
+  "whisper-1",
+];
+
 const ALL_MODELS = [
   ...GEMINI_25_MODELS,
   ...GEMINI_31_MODELS,
   ...GEMINI_30_MODELS,
   ...IMAGEN_MODELS,
+  ...IMAGEN_EDIT_MODELS,
   ...VEO_MODELS,
   ...GROK_MODELS,
   ...DEEPSEEK_MODELS,
@@ -90,6 +103,7 @@ const ALL_MODELS = [
   ...MINIMAX_MODELS,
   ...GLM_MODELS,
   ...MISTRAL_MODELS,
+  ...AUDIO_MODELS,
 ];
 
 const FREE_MODELS = [
@@ -122,6 +136,12 @@ const PRO_MODELS = [
   "glm-5",
   // Mistral AI
   "mistral-small",
+  // Imagen edits/inpainting
+  "imagen-3.0-capability-001",
+  // Audio
+  "tts-1",
+  "tts-1-hd",
+  "whisper-1",
 ];
 
 export async function runSeed(): Promise<void> {

@@ -11,3 +11,6 @@ export * from "./promo-codes";
 export * from "./violation-logs";
 export * from "./webhooks";
 export * from "./system-settings";
+export * from "./incidents";
+export * from "./health-snapshots";
+export * from "./organizations";

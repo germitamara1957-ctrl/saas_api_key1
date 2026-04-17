@@ -41,7 +41,7 @@ Includes a full admin dashboard and a developer self-service portal, with Arabic
 
 ---
 
-## DB Schema (12 tables)
+## DB Schema (17 tables)
 
 | Table | Purpose |
 |---|---|
@@ -57,6 +57,11 @@ Includes a full admin dashboard and a developer self-service portal, with Arabic
 | `promo_codes` | Redeemable codes (fixed amount or percentage, usage limit) |
 | `violation_logs` | Content guardrail violation evidence with auto-suspend logic |
 | `webhooks` | User webhook endpoints with HMAC-SHA256 secret, event filter, lastTriggeredAt |
+| `incidents` | Status-page incidents (bilingual title/body, severity, status, timestamps) |
+| `health_snapshots` | Throttled health probes (one row per ~30s) used for uptime % |
+| `organizations` | Teams/orgs with own credit pool (foundation; org-owned API keys opt-in via `api_keys.organization_id`) |
+| `organization_members` | Composite-PK org↔user with role enum (owner / admin / developer / viewer) |
+| `organization_invites` | Pending email invites with token + expiry, accepted-at timestamp |
 
 ---
 
@@ -97,6 +102,9 @@ Includes a full admin dashboard and a developer self-service portal, with Arabic
 
 ## API Endpoints
 
+### Public (no auth)
+- `GET /status/summary` — overall status (operational / degraded / major_outage), uptime % over 24h/7d/30d, active + recent incidents
+
 ### V1 — Developer API (Bearer: `sk-...` API key)
 | Method | Path | Description |
 |---|---|---|
@@ -109,6 +117,9 @@ Includes a full admin dashboard and a developer self-service portal, with Arabic
 | GET | `/v1/video/:jobId/download` | Download completed video as a real `video/mp4` file (decodes base64 inline URIs; SSRF-guarded for http(s)) |
 | GET | `/v1/models` | List available models |
 | POST | `/v1/files` | Upload image for multimodal chat (returns base64 + mimeType) |
+| POST | `/v1/images/edits` | **Inpainting** — multipart (image, mask, prompt, n) using `imagen-3.0-capability-001`. OpenAI-compatible. |
+| POST | `/v1/audio/speech` | **TTS** — JSON `{model, input, voice, response_format}` returns audio bytes. Models: `tts-1`, `tts-1-hd`. |
+| POST | `/v1/audio/transcriptions` | **STT** — multipart (file, model). Model: `whisper-1`. Returns `{text}`. |
 
 ### Portal — Developer Self-Service (Bearer: JWT)
 | Method | Path | Description |
@@ -120,6 +131,11 @@ Includes a full admin dashboard and a developer self-service portal, with Arabic
 | POST | `/portal/promo-codes/redeem` | Redeem promo code |
 | GET/POST/PUT/DELETE | `/portal/webhooks` | Webhook CRUD |
 | POST | `/portal/webhooks/:id/test` | Send test webhook event |
+| GET/POST | `/portal/organizations` | List my orgs / create new org (creator → owner) |
+| GET/PATCH/DELETE | `/portal/organizations/:id` | Org details + members / rename / delete (owner only) |
+| GET/POST/DELETE | `/portal/organizations/:id/invites[/:inviteId]` | Manage email invites (owner/admin) |
+| POST | `/portal/organizations/invites/:token/accept` | Accept invite (auth + email match) |
+| PATCH/DELETE | `/portal/organizations/:id/members/:userId` | Change role / remove member (owner/admin) |
 
 ### Admin (Bearer: JWT, role=admin)
 | Method | Path | Description |
@@ -135,6 +151,7 @@ Includes a full admin dashboard and a developer self-service portal, with Arabic
 | GET | `/admin/audit-log` | Admin action log |
 | GET/POST/PUT/DELETE | `/admin/api-keys` | API key admin |
 | GET/POST/PUT/DELETE | `/admin/promo-codes` | Promo code management |
+| GET/POST/PATCH/DELETE | `/admin/incidents` | Status-page incident CRUD |
 
 ---
 

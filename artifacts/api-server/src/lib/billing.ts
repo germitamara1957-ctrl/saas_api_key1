@@ -59,6 +59,15 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
   "glm-5":                           { inputPer1M:  0.50, outputPer1M:  1.50 },
   // ─── Mistral AI — Mistral Small 3.1 (25.03) via Vertex AI MaaS ───────────
   "mistral-small":                   { inputPer1M:  0.10, outputPer1M:  0.30 },
+  // ─── Imagen Inpainting / Edits (capability model — same per-image price) ──
+  "imagen-3.0-capability-001":       { inputPer1M: 0, outputPer1M: 0, perImage: 0.04 },
+  // ─── Audio TTS — billed per 1M characters in `inputPer1M` ────────────────
+  // Standard / Neural2 / WaveNet voices (~$4/1M chars → ~$16/1M w/ Studio).
+  "tts-1":                           { inputPer1M: 4.00,  outputPer1M: 0 },
+  "tts-1-hd":                        { inputPer1M: 16.00, outputPer1M: 0 },
+  // ─── Audio STT — billed per second in `perSecond` ────────────────────────
+  // Google Chirp 2 ≈ $0.024 / minute = $0.0004 / second.
+  "whisper-1":                       { inputPer1M: 0, outputPer1M: 0, perSecond: 0.0004 },
 };
 
 export const MARKUP_FACTOR = 1.1;
@@ -126,6 +135,22 @@ export function calculateImageCost(model: string, count = 1): number {
 export function calculateVideoCost(model: string, durationSeconds: number): number {
   const costs = getCost(model);
   return (costs.perSecond ?? 0.50) * durationSeconds * MARKUP_FACTOR;
+}
+
+/**
+ * Audio TTS pricing — re-uses inputPer1M as the per-1M-characters rate.
+ */
+export function calculateTtsCost(model: string, characters: number): number {
+  const costs = getCost(model);
+  return (characters / 1_000_000) * costs.inputPer1M * MARKUP_FACTOR;
+}
+
+/**
+ * Audio STT pricing — billed per second of audio duration.
+ */
+export function calculateSttCost(model: string, durationSeconds: number): number {
+  const costs = getCost(model);
+  return (costs.perSecond ?? 0.0004) * durationSeconds * MARKUP_FACTOR;
 }
 
 export function getSupportedModels(): string[] {

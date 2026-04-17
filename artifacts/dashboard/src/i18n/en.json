@@ -11,6 +11,8 @@
     "docs": "Docs",
     "auditLog": "Audit Log",
     "promoCodes": "Promo Codes",
+    "incidents": "Incidents",
+    "organizations": "Organizations",
     "settings": "Settings"
   },
   "common": {
@@ -465,6 +467,81 @@
     "pricingPerSecond": "Per Second",
     "per1M": "per 1M tokens",
     "new": "New",
-    "preview": "Preview"
+    "preview": "Preview",
+    "audio": "Audio",
+    "inpainting": "Inpainting"
+  },
+  "status": {
+    "title": "System Status",
+    "lastChecked": "Last checked",
+    "uptime24h": "Uptime (24h)",
+    "uptime7d": "Uptime (7d)",
+    "uptime30d": "Uptime (30d)",
+    "activeIncidents": "Active Incidents",
+    "recentIncidents": "Recent Incidents",
+    "noActiveIncidents": "All systems operational. No active incidents.",
+    "noRecentIncidents": "No incidents reported in the last 30 days.",
+    "overall": {
+      "operational": "All Systems Operational",
+      "degraded": "Degraded Performance",
+      "major_outage": "Major Outage",
+      "unknown": "Status Unknown"
+    },
+    "severity": {
+      "minor": "Minor",
+      "major": "Major",
+      "critical": "Critical",
+      "maintenance": "Maintenance"
+    },
+    "statusValues": {
+      "investigating": "Investigating",
+      "identified": "Identified",
+      "monitoring": "Monitoring",
+      "resolved": "Resolved"
+    }
+  },
+  "incidents": {
+    "title": "Incidents",
+    "subtitle": "Manage status page incidents",
+    "all": "All Incidents",
+    "new": "New Incident",
+    "edit": "Edit Incident",
+    "titleEn": "Title (English)",
+    "titleAr": "Title (Arabic)",
+    "bodyEn": "Description (English)",
+    "bodyAr": "Description (Arabic)",
+    "status": "Status",
+    "severity": "Severity"
+  },
+  "orgs": {
+    "title": "Organizations",
+    "subtitle": "Manage your teams and shared workspaces",
+    "mine": "My Organizations",
+    "create": "Create Organization",
+    "name": "Organization Name",
+    "empty": "You don't belong to any organization yet. Create one to get started.",
+    "members": "Members",
+    "pendingInvites": "Pending Invites",
+    "noPendingInvites": "No pending invites.",
+    "expires": "expires",
+    "rename": "Rename",
+    "delete": "Delete Organization",
+    "confirmDelete": "Are you sure? This will permanently delete the organization and all its data.",
+    "dangerZone": "Danger Zone",
+    "role": {
+      "label": "Role",
+      "owner": "Owner",
+      "admin": "Admin",
+      "developer": "Developer",
+      "viewer": "Viewer"
+    },
+    "invite": {
+      "button": "Invite Member",
+      "send": "Send Invite",
+      "sent": "Invitation sent",
+      "acceptTitle": "Accept Organization Invite",
+      "acceptDesc": "You've been invited to join an organization. Click below to accept.",
+      "accept": "Accept Invite"
+    }
   }
 }

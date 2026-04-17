@@ -8,6 +8,8 @@ export const apiKeysTable = pgTable("api_keys", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   planId: integer("plan_id").references(() => plansTable.id, { onDelete: "set null" }),
+  // Optional: if set, this key bills against the organization's credit pool instead of the user's.
+  organizationId: integer("organization_id"),
   keyPrefix: text("key_prefix").notNull(),
   keyHash: text("key_hash").notNull().unique(),
   keyEncrypted: text("key_encrypted"),

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState, Fragment } from "react";
 import { useToast } from "@/hooks/use-toast";
+import i18n from "@/i18n";
 
 const GATEWAY_URL = window.location.origin;
 
@@ -468,6 +469,7 @@ export default function PortalDocs() {
   const { data: apiKeys } = useGetPortalApiKeys();
   const apiKey = apiKeys?.[0]?.fullKey ?? "YOUR_API_KEY";
   const base = GATEWAY_URL;
+  const isAr = i18n.language === "ar";
 
   const [sortMode, setSortMode] = useState<SortMode>("default");
 
@@ -1066,6 +1068,114 @@ console.log("MP4 size (bytes):", mp4.size);`;
                 <TabsContent value="javascript" className="m-0"><CodeBlock code={videoJs} /></TabsContent>
               </Tabs>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Image Edits / Inpainting */}
+      <div className="space-y-3">
+        <SectionTitle>{isAr ? "تعديل الصور (Inpainting)" : "Image Edits (Inpainting)"}</SectionTitle>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="bg-primary/10 text-primary font-mono">POST</Badge>
+              <code className="text-base font-mono font-semibold">/api/v1/images/edits</code>
+              <Badge variant="secondary" className="text-xs">multipart/form-data</Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isAr
+                ? "تعديل الصور باستخدام قناع (mask) وموجه نصي. متوافق مع OpenAI. يستخدم Imagen 3 capability خلف الكواليس."
+                : "Edit images with a mask and a text prompt. OpenAI-compatible. Powered by Imagen 3 capability under the hood."}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-border/30">
+                {[
+                  ["image", "file", "Required", isAr ? "ملف الصورة الأصلية (PNG/JPEG)" : "Original image file (PNG/JPEG)"],
+                  ["mask", "file", "Required", isAr ? "قناع PNG: المناطق الشفافة سيتم تعديلها" : "PNG mask: transparent regions will be edited"],
+                  ["prompt", "string", "Required", isAr ? "وصف التعديل المطلوب" : "Description of the edit"],
+                  ["model", "string", "Optional", isAr ? "افتراضي: dall-e-2 → imagen-3.0-capability-001" : "Default: dall-e-2 → imagen-3.0-capability-001"],
+                  ["n", "number", "Optional", isAr ? "عدد الصور (1-4)" : "Number of images (1-4)"],
+                ].map(([name, type, req, desc]) => (
+                  <tr key={name}>
+                    <td className="py-1.5 pr-2 font-mono text-primary">{name}</td>
+                    <td className="py-1.5 pr-2 text-muted-foreground">{type}</td>
+                    <td className="py-1.5 pr-2 text-muted-foreground">{req}</td>
+                    <td className="py-1.5 text-muted-foreground">{desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <CodeBlock code={`curl -X POST https://YOUR_DOMAIN/api/v1/images/edits \\
+  -H "Authorization: Bearer $API_KEY" \\
+  -F image=@photo.png \\
+  -F mask=@mask.png \\
+  -F prompt="Replace the sky with a sunset"`} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Audio TTS / STT */}
+      <div className="space-y-3">
+        <SectionTitle>{isAr ? "الصوت (TTS / STT)" : "Audio (TTS / STT)"}</SectionTitle>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="bg-primary/10 text-primary font-mono">POST</Badge>
+              <code className="text-base font-mono font-semibold">/api/v1/audio/speech</code>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isAr
+                ? "تحويل النص إلى كلام. متوافق مع OpenAI. يدعم MP3, WAV, OGG. الأسعار حسب عدد الأحرف."
+                : "Text-to-speech. OpenAI-compatible. Supports MP3, WAV, OGG. Priced per character."}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <CodeBlock code={`curl -X POST https://YOUR_DOMAIN/api/v1/audio/speech \\
+  -H "Authorization: Bearer $API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"tts-1","input":"Hello world","voice":"alloy","response_format":"mp3"}' \\
+  --output speech.mp3`} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="bg-primary/10 text-primary font-mono">POST</Badge>
+              <code className="text-base font-mono font-semibold">/api/v1/audio/transcriptions</code>
+              <Badge variant="secondary" className="text-xs">multipart/form-data</Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isAr
+                ? "تحويل الكلام إلى نص. متوافق مع OpenAI Whisper. الأسعار حسب الثانية."
+                : "Speech-to-text. OpenAI Whisper-compatible. Priced per second."}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <CodeBlock code={`curl -X POST https://YOUR_DOMAIN/api/v1/audio/transcriptions \\
+  -H "Authorization: Bearer $API_KEY" \\
+  -F file=@audio.mp3 \\
+  -F model=whisper-1`} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Organizations note */}
+      <div className="space-y-3">
+        <SectionTitle>{isAr ? "الفرق والمؤسسات" : "Teams & Organizations"}</SectionTitle>
+        <Card>
+          <CardContent className="pt-6 text-sm text-muted-foreground space-y-2">
+            <p>
+              {isAr
+                ? "يمكنك إنشاء مؤسسات لمشاركة العمل مع زملائك. كل مؤسسة لديها أعضاء بأدوار (مالك، مسؤول، مطور، مشاهد). الأدوار: المالك يتحكم بالكل؛ المسؤول يدير الأعضاء والدعوات؛ المطور يستخدم API؛ المشاهد للقراءة فقط."
+                : "Create organizations to share work with teammates. Each org has members with roles (owner, admin, developer, viewer). Roles: owner has full control; admin manages members and invites; developer uses APIs; viewer is read-only."}
+            </p>
+            <p>
+              {isAr
+                ? "ملاحظة: في هذه المرحلة، أرصدة المؤسسات ومفاتيح API الخاصة بالمؤسسة هي أساس جاهز — واجهة المستخدم لإنشاء مفاتيح مرتبطة بالمؤسسة وحدود الإنفاق على مستوى المؤسسة ستضاف لاحقاً."
+                : "Note: at this stage, org credit pools and org-owned API keys are foundation-ready — UI to create org-linked keys and org-level spend limits is coming soon."}
+            </p>
           </CardContent>
         </Card>
       </div>

@@ -70,6 +70,9 @@ export const GEMINI_ALIASES: Record<string, string> = {
   "dall-e-3":       "imagen-4.0-generate-001",
   "gpt-image-1":    "imagen-4.0-ultra-generate-001",
   "imagen-3.0-generate-001": "imagen-3.0-generate-002",
+  // Image editing / inpainting capability model
+  "imagen-edit":    "imagen-3.0-capability-001",
+  "dall-e-2-edit":  "imagen-3.0-capability-001",
   // Backward-compat aliases: old .0 names → correct Resource IDs per Google docs
   // gemini-3.0-pro-preview removed — no GCP project access
   "gemini-3.0-flash-preview":     "gemini-3-flash-preview",
