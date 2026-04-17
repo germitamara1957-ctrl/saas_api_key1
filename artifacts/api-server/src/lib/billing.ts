@@ -39,6 +39,11 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
   // ─── OpenAI Sora-compatible aliases (mapped to Veo 3.1 backend) ─────────
   "sora-2":                          { inputPer1M: 0, outputPer1M: 0, perSecond: 0.12 },
   "sora-2-pro":                      { inputPer1M: 0, outputPer1M: 0, perSecond: 0.40 },
+  // ─── OpenAI Image-compatible aliases (mapped to Imagen backend) ─────────
+  // Same prices as the actual backend models — no hidden markup.
+  "dall-e-2":                        { inputPer1M: 0, outputPer1M: 0, perImage: 0.02 },
+  "dall-e-3":                        { inputPer1M: 0, outputPer1M: 0, perImage: 0.04 },
+  "gpt-image-1":                     { inputPer1M: 0, outputPer1M: 0, perImage: 0.06 },
   // ─── Grok / xAI (official Vertex AI pricing, Apr 2026) ───────────────────
   "grok-4.20":                       { inputPer1M:  0.20, outputPer1M:  0.50 },
   "grok-4.1-thinking":               { inputPer1M:  0.20, outputPer1M:  0.50 },

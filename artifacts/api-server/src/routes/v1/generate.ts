@@ -39,11 +39,13 @@ router.post("/v1/generate", requireApiKey, async (req, res): Promise<void> => {
   const apiKey = req.apiKey!;
   const requestId = req.preassignedRequestId ?? generateRequestId();
 
-  // Only Imagen image-generation models are accepted on this endpoint
-  if (!model.startsWith("imagen-")) {
+  // Accept Imagen models AND OpenAI-compatible image aliases (dall-e-2, dall-e-3, gpt-image-1).
+  // The aliases are resolved to imagen-* by generateImageWithImagen via GEMINI_ALIASES.
+  const isOpenAIImageAlias = model === "dall-e-2" || model === "dall-e-3" || model === "gpt-image-1";
+  if (!model.startsWith("imagen-") && !isOpenAIImageAlias) {
     res.status(400).json({
       error: `Model "${model}" is not supported on this endpoint. ` +
-        `Only Imagen models (imagen-*) are accepted here. ` +
+        `Accepted: Imagen models (imagen-*) and OpenAI-compatible aliases (dall-e-2, dall-e-3, gpt-image-1). ` +
         `Use POST /v1/chat for text models or POST /v1/video for Veo video models.`,
     });
     return;

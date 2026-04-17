@@ -80,6 +80,10 @@ export const MODELS: ModelDef[] = [
   { id: "imagen-4.0-ultra-generate-001", displayName: "Imagen 4 Ultra", category: "image", provider: "google-imagen", description: "Highest-quality Imagen 4 — finest details",         pricing: { perImage: 0.06 }, isNew: true, isPreview: true },
   { id: "imagen-3.0-generate-002",       displayName: "Imagen 3",       category: "image", provider: "google-imagen", description: "Latest stable Imagen 3 — high-quality proven",      pricing: { perImage: 0.04 } },
   { id: "imagen-3.0-fast-generate-001",  displayName: "Imagen 3 Fast",  category: "image", provider: "google-imagen", description: "Faster Imagen 3 — lower cost for high-volume",      pricing: { perImage: 0.02 } },
+  // ─── OpenAI Image-compatible aliases (mapped to Imagen) ──────
+  { id: "dall-e-2",    displayName: "DALL-E 2 (→ Imagen 3 Fast)",         category: "image", provider: "google-imagen", description: "OpenAI alias — routes to imagen-3.0-fast-generate-001",  pricing: { perImage: 0.02 } },
+  { id: "dall-e-3",    displayName: "DALL-E 3 (→ Imagen 4)",              category: "image", provider: "google-imagen", description: "OpenAI alias — routes to imagen-4.0-generate-001",       pricing: { perImage: 0.04 } },
+  { id: "gpt-image-1", displayName: "GPT Image 1 (→ Imagen 4 Ultra)",     category: "image", provider: "google-imagen", description: "OpenAI alias — routes to imagen-4.0-ultra-generate-001", pricing: { perImage: 0.06 } },
   // ─── Veo ──────────────────────────────────────────────────────
   { id: "veo-3.1-generate-001",      displayName: "Veo 3.1",      category: "video", provider: "google-veo", description: "Latest video generation — cinematic with audio", pricing: { perSecond: 0.40 }, isNew: true },
   { id: "veo-3.1-fast-generate-001", displayName: "Veo 3.1 Fast", category: "video", provider: "google-veo", description: "Faster Veo 3.1 — lower latency",                pricing: { perSecond: 0.12 }, isNew: true },

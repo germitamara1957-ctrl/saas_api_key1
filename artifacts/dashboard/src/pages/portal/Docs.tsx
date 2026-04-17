@@ -1114,13 +1114,61 @@ console.log("MP4 size (bytes):", mp4.size);`;
                 </tbody>
               </table>
             </div>
+
+            {/* Image models (DALL-E ↔ Imagen) */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">
+                Image models (DALL-E / GPT Image ↔ Imagen)
+              </p>
+              <table className="w-full text-xs border border-border/40 rounded">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="py-2 px-3 text-left font-medium">Alias (request)</th>
+                    <th className="py-2 px-3 text-left font-medium">Actual backend model</th>
+                    <th className="py-2 px-3 text-left font-medium">Price / image</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {[
+                    ["dall-e-2", "imagen-3.0-fast-generate-001", "$0.02"],
+                    ["dall-e-3", "imagen-4.0-generate-001", "$0.04"],
+                    ["gpt-image-1", "imagen-4.0-ultra-generate-001", "$0.06"],
+                  ].map(([alias, real, price]) => (
+                    <tr key={alias}>
+                      <td className="py-1.5 px-3 font-mono text-primary">{alias}</td>
+                      <td className="py-1.5 px-3 font-mono text-muted-foreground">{real}</td>
+                      <td className="py-1.5 px-3 text-muted-foreground">{price}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-xs text-muted-foreground mt-2">
+                Mapping is preserved by quality tier: worst → worst, best → best. Aliases bill at the
+                exact same base price as the real backend model (no extra alias premium). The standard
+                gateway markup applies uniformly to every model.
+              </p>
+              <p className="text-xs text-muted-foreground mt-1" dir="rtl" lang="ar">
+                الربط محفوظ حسب طبقة الجودة: الأسوأ → الأسوأ، الأفضل → الأفضل. الأسماء البديلة تُحاسَب
+                بنفس السعر الأساسي للنموذج الفعلي تماماً (دون أي علاوة على الاسم البديل). هامش البوّابة
+                القياسي يُطبَّق بالتساوي على جميع النماذج.
+              </p>
+            </div>
+
             <div className="text-xs text-muted-foreground space-y-2">
               <p>
-                <span className="font-medium">Endpoints:</span>{" "}
+                <span className="font-medium">Video endpoints:</span>{" "}
                 <code className="bg-muted px-1 rounded">POST /v1/videos</code>,{" "}
                 <code className="bg-muted px-1 rounded">GET /v1/videos/:id</code>,{" "}
                 <code className="bg-muted px-1 rounded">GET /v1/videos/:id/content</code>{" "}
                 — OpenAI Sora-compatible (works with the n8n OpenAI Video node out of the box).
+              </p>
+              <p>
+                <span className="font-medium">Image endpoints:</span>{" "}
+                <code className="bg-muted px-1 rounded">POST /v1/images/generations</code>{" "}
+                — OpenAI-compatible (works with the n8n OpenAI Image node out of the box). Returns{" "}
+                <code className="bg-muted px-1 rounded">{`{ created, data: [{ b64_json }] }`}</code>.
+                The legacy <code className="bg-muted px-1 rounded">POST /v1/generate</code> also accepts
+                these aliases for backward compatibility.
               </p>
               <p>
                 <span className="font-medium">Important limits:</span>{" "}

@@ -6,7 +6,7 @@ const router: IRouter = Router();
 
 function ownedBy(modelId: string): string {
   if (modelId.startsWith("gemini-") || modelId.startsWith("imagen-") || modelId.startsWith("veo-") || modelId.startsWith("gemma-")) return "google";
-  if (modelId.startsWith("sora-") || modelId.startsWith("gpt-") || modelId.startsWith("dall-e") || modelId.startsWith("whisper-") || modelId.startsWith("text-embedding-")) return "openai";
+  if (modelId.startsWith("sora-") || modelId.startsWith("gpt-") || modelId.startsWith("dall-e") || modelId.startsWith("gpt-image") || modelId.startsWith("whisper-") || modelId.startsWith("text-embedding-")) return "openai";
   if (modelId.startsWith("grok-")) return "xai";
   if (modelId.startsWith("mistral-") || modelId.startsWith("ministral-") || modelId.startsWith("codestral") || modelId.startsWith("jamba-")) return "mistral-ai";
   if (modelId.startsWith("deepseek-")) return "deepseek";

@@ -64,6 +64,11 @@ export const GEMINI_ALIASES: Record<string, string> = {
   // OpenAI Sora-compatible aliases (n8n / OpenAI SDK use these names)
   "sora-2":         "veo-3.1-fast-generate-001",
   "sora-2-pro":     "veo-3.1-generate-001",
+  // OpenAI Image-compatible aliases (n8n OpenAI Image node / OpenAI SDK use these names)
+  // Mapped worst → worst, best → best to preserve user expectations.
+  "dall-e-2":       "imagen-3.0-fast-generate-001",
+  "dall-e-3":       "imagen-4.0-generate-001",
+  "gpt-image-1":    "imagen-4.0-ultra-generate-001",
   "imagen-3.0-generate-001": "imagen-3.0-generate-002",
   // Backward-compat aliases: old .0 names → correct Resource IDs per Google docs
   // gemini-3.0-pro-preview removed — no GCP project access
