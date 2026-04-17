@@ -1,5 +1,5 @@
-import { db, usersTable, usageLogsTable, apiKeysTable } from "@workspace/db";
-import { eq, and, gte, sql, inArray } from "drizzle-orm";
+import { db, usersTable, usageLogsTable, apiKeysTable, organizationsTable } from "@workspace/db";
+import { eq, and, gte, sql, inArray, isNull } from "drizzle-orm";
 import { sendEmail } from "./email";
 import { logger } from "./logger";
 import { dispatchWebhooks } from "./webhookDispatcher";
@@ -55,10 +55,12 @@ export async function checkSpendingLimits(userId: number): Promise<SpendingCheck
     return { allowed: true, dailySpent: 0, monthlySpent: 0, dailyLimit: null, monthlyLimit: null };
   }
 
+  // Only count PERSONAL keys (organizationId IS NULL). Org-bound keys debit
+  // the organization pool and must not contaminate the user's personal cap.
   const userKeys = await db
     .select({ id: apiKeysTable.id })
     .from(apiKeysTable)
-    .where(eq(apiKeysTable.userId, userId));
+    .where(and(eq(apiKeysTable.userId, userId), isNull(apiKeysTable.organizationId)));
   const keyIds = userKeys.map((k) => k.id);
   if (keyIds.length === 0) {
     return { allowed: true, dailySpent: 0, monthlySpent: 0, dailyLimit: user.dailyLimit, monthlyLimit: user.monthlyLimit };
@@ -146,5 +148,68 @@ export async function checkSpendingLimits(userId: number): Promise<SpendingCheck
     allowed: true,
     dailySpent, monthlySpent,
     dailyLimit: user.dailyLimit, monthlyLimit: user.monthlyLimit,
+  };
+}
+
+/**
+ * Org-pool variant of `checkSpendingLimits`. Sums `usage_logs.cost_usd` where
+ * `organization_id = orgId` (regardless of which member's API key made the
+ * call). No alert/email side-effects yet — caller may extend later.
+ */
+export async function checkOrgSpendingLimits(orgId: number): Promise<SpendingCheck> {
+  const [org] = await db
+    .select({
+      dailyLimit: organizationsTable.dailySpendLimitUsd,
+      monthlyLimit: organizationsTable.monthlySpendLimitUsd,
+    })
+    .from(organizationsTable)
+    .where(eq(organizationsTable.id, orgId))
+    .limit(1);
+
+  if (!org) {
+    return { allowed: true, dailySpent: 0, monthlySpent: 0, dailyLimit: null, monthlyLimit: null };
+  }
+  if (org.dailyLimit == null && org.monthlyLimit == null) {
+    return { allowed: true, dailySpent: 0, monthlySpent: 0, dailyLimit: null, monthlyLimit: null };
+  }
+
+  const [daySum] = await db
+    .select({ total: sql<string>`COALESCE(SUM(${usageLogsTable.costUsd}), 0)` })
+    .from(usageLogsTable)
+    .where(and(
+      eq(usageLogsTable.organizationId, orgId),
+      eq(usageLogsTable.status, "success"),
+      gte(usageLogsTable.createdAt, startOfUtcDay()),
+    ));
+  const [monthSum] = await db
+    .select({ total: sql<string>`COALESCE(SUM(${usageLogsTable.costUsd}), 0)` })
+    .from(usageLogsTable)
+    .where(and(
+      eq(usageLogsTable.organizationId, orgId),
+      eq(usageLogsTable.status, "success"),
+      gte(usageLogsTable.createdAt, startOfUtcMonth()),
+    ));
+
+  const dailySpent = Number(daySum?.total ?? 0);
+  const monthlySpent = Number(monthSum?.total ?? 0);
+
+  const dailyExceeded = org.dailyLimit != null && dailySpent >= org.dailyLimit;
+  const monthlyExceeded = org.monthlyLimit != null && monthlySpent >= org.monthlyLimit;
+
+  if (dailyExceeded || monthlyExceeded) {
+    return {
+      allowed: false,
+      dailySpent, monthlySpent,
+      dailyLimit: org.dailyLimit, monthlyLimit: org.monthlyLimit,
+      reason: dailyExceeded
+        ? `Organization daily spend limit reached ($${dailySpent.toFixed(4)} of $${org.dailyLimit!.toFixed(2)}). Wait until 00:00 UTC or ask an owner/admin to raise the cap.`
+        : `Organization monthly spend limit reached ($${monthlySpent.toFixed(4)} of $${org.monthlyLimit!.toFixed(2)}). Wait until next month or ask an owner/admin to raise the cap.`,
+    };
+  }
+
+  return {
+    allowed: true,
+    dailySpent, monthlySpent,
+    dailyLimit: org.dailyLimit, monthlyLimit: org.monthlyLimit,
   };
 }

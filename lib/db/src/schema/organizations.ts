@@ -9,6 +9,9 @@ export const organizationsTable = pgTable("organizations", {
   ownerId: integer("owner_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   creditBalance: doublePrecision("credit_balance").notNull().default(0),
   topupCreditBalance: doublePrecision("topup_credit_balance").notNull().default(0),
+  // Optional org-level spend caps. NULL = no cap. Independent from per-user/per-key caps.
+  dailySpendLimitUsd: doublePrecision("daily_spend_limit_usd"),
+  monthlySpendLimitUsd: doublePrecision("monthly_spend_limit_usd"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [

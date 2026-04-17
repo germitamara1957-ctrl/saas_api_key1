@@ -7,8 +7,12 @@ import {
   organizationMembersTable,
   organizationInvitesTable,
   usersTable,
+  apiKeysTable,
+  plansTable,
 } from "@workspace/db";
+import { asc } from "drizzle-orm";
 import { getUserOrgRole, hasOrgRole, type OrgRole } from "../../lib/orgUtils";
+import { generateApiKey, encryptApiKey } from "../../lib/crypto";
 
 const router: IRouter = Router();
 
@@ -283,6 +287,154 @@ router.delete("/portal/organizations/:id/members/:userId", async (req, res): Pro
     eq(organizationMembersTable.userId, targetUserId),
   ));
   res.status(204).end();
+});
+
+// ─── Org API keys: list (any member) ────────────────────────────────────────
+router.get("/portal/organizations/:id/api-keys", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const orgId = Number(req.params.id);
+  if (!Number.isFinite(orgId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const role = await getUserOrgRole(orgId, userId);
+  if (!role) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  const keys = await db
+    .select({
+      id: apiKeysTable.id,
+      name: apiKeysTable.name,
+      keyPrefix: apiKeysTable.keyPrefix,
+      isActive: apiKeysTable.isActive,
+      lastUsedAt: apiKeysTable.lastUsedAt,
+      createdAt: apiKeysTable.createdAt,
+      createdByUserId: apiKeysTable.userId,
+    })
+    .from(apiKeysTable)
+    .where(eq(apiKeysTable.organizationId, orgId))
+    .orderBy(desc(apiKeysTable.createdAt));
+
+  res.json({ apiKeys: keys });
+});
+
+// ─── Org API keys: create (owner/admin) ─────────────────────────────────────
+// The created key debits the org credit pool; it is scoped via `organization_id`.
+// `userId` records the human creator (for audit) — the key itself is org-owned.
+router.post("/portal/organizations/:id/api-keys", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const orgId = Number(req.params.id);
+  if (!Number.isFinite(orgId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const role = await getUserOrgRole(orgId, userId);
+  if (!hasOrgRole(role, ["owner", "admin"])) { res.status(403).json({ error: "Only owners and admins can create org API keys" }); return; }
+
+  const rawName = req.body?.name;
+  if (rawName !== undefined && (typeof rawName !== "string" || rawName.length > 100)) {
+    res.status(400).json({ error: "name must be a string of at most 100 characters" });
+    return;
+  }
+  const keyName = typeof rawName === "string" && rawName.trim() ? rawName.trim() : "Org Key";
+
+  // Org keys still need a plan attached (rate-limit + model-list gating in
+  // apiKeyAuth assumes one). Use the creator's current plan, or fall back to
+  // the cheapest active plan. Org keys never receive plan-bonus credits.
+  const [creator] = await db.select({ currentPlanId: usersTable.currentPlanId })
+    .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+
+  let planId: number | null = creator?.currentPlanId ?? null;
+  if (planId == null) {
+    const [fallback] = await db.select({ id: plansTable.id })
+      .from(plansTable).where(eq(plansTable.isActive, true))
+      .orderBy(asc(plansTable.priceUsd)).limit(1);
+    planId = fallback?.id ?? null;
+  }
+  if (planId == null) {
+    res.status(409).json({ error: "No active plan available to assign to the org key. Contact your administrator." });
+    return;
+  }
+
+  const { rawKey, keyHash, keyPrefix } = generateApiKey();
+  const keyEncrypted = encryptApiKey(rawKey);
+
+  const [apiKey] = await db.insert(apiKeysTable).values({
+    userId,                  // human creator (audit only)
+    organizationId: orgId,   // billing target — debits org pool, not user
+    planId,                  // rate-limit & allowed-models gating only
+    keyPrefix, keyHash, keyEncrypted,
+    name: keyName,
+    isActive: true,
+  }).returning();
+
+  res.status(201).json({
+    id: apiKey!.id,
+    keyPrefix: apiKey!.keyPrefix,
+    fullKey: rawKey,
+    name: apiKey!.name,
+    isActive: apiKey!.isActive,
+    createdAt: apiKey!.createdAt,
+  });
+});
+
+// ─── Org API keys: revoke (owner/admin) ─────────────────────────────────────
+router.delete("/portal/organizations/:id/api-keys/:keyId", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const orgId = Number(req.params.id);
+  const keyId = Number(req.params.keyId);
+  if (!Number.isFinite(orgId) || !Number.isFinite(keyId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const role = await getUserOrgRole(orgId, userId);
+  if (!hasOrgRole(role, ["owner", "admin"])) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  // Scope by both org and key id to prevent cross-org revocation.
+  const [updated] = await db.update(apiKeysTable)
+    .set({ isActive: false, revokedAt: new Date() })
+    .where(and(eq(apiKeysTable.id, keyId), eq(apiKeysTable.organizationId, orgId)))
+    .returning({ id: apiKeysTable.id });
+
+  if (!updated) { res.status(404).json({ error: "API key not found in this organization" }); return; }
+  res.status(204).end();
+});
+
+// ─── Org spending limits (owner/admin) ──────────────────────────────────────
+// PATCH body: { dailySpendLimitUsd?: number|null, monthlySpendLimitUsd?: number|null }
+// Pass `null` to clear a cap. Omit a field to leave it unchanged.
+router.patch("/portal/organizations/:id/spending-limits", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const orgId = Number(req.params.id);
+  if (!Number.isFinite(orgId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const role = await getUserOrgRole(orgId, userId);
+  if (!hasOrgRole(role, ["owner", "admin"])) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const updates: Partial<{ dailySpendLimitUsd: number | null; monthlySpendLimitUsd: number | null }> = {};
+
+  for (const field of ["dailySpendLimitUsd", "monthlySpendLimitUsd"] as const) {
+    if (field in (req.body ?? {})) {
+      const v = req.body[field];
+      if (v === null) {
+        updates[field] = null;
+      } else if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+        updates[field] = v;
+      } else {
+        res.status(400).json({ error: `${field} must be a non-negative number or null` });
+        return;
+      }
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "No fields to update" });
+    return;
+  }
+
+  const [org] = await db.update(organizationsTable)
+    .set(updates)
+    .where(eq(organizationsTable.id, orgId))
+    .returning({
+      id: organizationsTable.id,
+      dailySpendLimitUsd: organizationsTable.dailySpendLimitUsd,
+      monthlySpendLimitUsd: organizationsTable.monthlySpendLimitUsd,
+    });
+
+  res.json({ organization: org });
 });
 
 export default router;

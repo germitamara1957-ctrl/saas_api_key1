@@ -77,7 +77,7 @@ router.post(
       const costUsd = calculateImageCost(BILLING_MODEL, result.images.length);
 
       const sufficient = await deductAndLog(
-        apiKey.userId, apiKey.id, BILLING_MODEL, requestId, 0, 0, costUsd, { modelInPlan: planAllows },
+        apiKey.billingTarget, apiKey.id, BILLING_MODEL, requestId, 0, 0, costUsd, { modelInPlan: planAllows },
       );
       if (!sufficient) {
         res.status(402).json({ error: { message: "Insufficient credits for image edit", type: "insufficient_quota" } });

@@ -60,7 +60,7 @@ router.post("/v1/audio/speech", requireApiKey, async (req, res): Promise<void> =
     const costUsd = calculateTtsCost(model, result.characters);
 
     const sufficient = await deductAndLog(
-      apiKey.userId, apiKey.id, model, requestId, result.characters, 0, costUsd, { modelInPlan: planAllows },
+      apiKey.billingTarget, apiKey.id, model, requestId, result.characters, 0, costUsd, { modelInPlan: planAllows },
     );
     if (!sufficient) {
       res.status(402).json({ error: { message: "Insufficient credits for TTS", type: "insufficient_quota" } });
@@ -120,7 +120,7 @@ router.post(
       const costUsd = calculateSttCost(STT_MODEL, result.durationSeconds);
 
       const sufficient = await deductAndLog(
-        apiKey.userId, apiKey.id, STT_MODEL, requestId,
+        apiKey.billingTarget, apiKey.id, STT_MODEL, requestId,
         Math.ceil(result.durationSeconds), 0, costUsd, { modelInPlan: planAllows },
       );
       if (!sufficient) {

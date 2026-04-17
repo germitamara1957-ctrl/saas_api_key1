@@ -23,8 +23,22 @@ interface Member {
 }
 
 interface OrgDetail {
-  organization: { id: number; name: string; slug: string; role: string; creditBalance: number; topupCreditBalance: number };
+  organization: {
+    id: number; name: string; slug: string; role: string;
+    creditBalance: number; topupCreditBalance: number;
+    dailySpendLimitUsd: number | null; monthlySpendLimitUsd: number | null;
+  };
   members: Member[];
+}
+
+interface OrgApiKey {
+  id: number;
+  name: string | null;
+  keyPrefix: string;
+  isActive: boolean;
+  lastUsedAt: string | null;
+  createdAt: string;
+  createdByUserId: number;
 }
 
 interface Invite {
@@ -52,6 +66,12 @@ export default function OrganizationDetail() {
   const [inviteRole, setInviteRole] = useState<string>("developer");
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
+  const [creatingKey, setCreatingKey] = useState(false);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [createdKey, setCreatedKey] = useState<{ fullKey: string; name: string | null } | null>(null);
+  const [editingLimits, setEditingLimits] = useState(false);
+  const [dailyCap, setDailyCap] = useState<string>("");
+  const [monthlyCap, setMonthlyCap] = useState<string>("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["portal-org", orgId],
@@ -63,6 +83,72 @@ export default function OrganizationDetail() {
   });
 
   const isOwnerOrAdmin = data?.organization.role === "owner" || data?.organization.role === "admin";
+
+  // ── Org API keys ──────────────────────────────────────────────────────────
+  const { data: keysData } = useQuery({
+    queryKey: ["portal-org-keys", orgId],
+    queryFn: async () => {
+      const res = await authFetch(`/portal/organizations/${orgId}/api-keys`);
+      if (!res.ok) throw new Error("Failed to load");
+      return (await res.json()) as { apiKeys: OrgApiKey[] };
+    },
+    enabled: Number.isFinite(orgId),
+  });
+
+  const createKey = useMutation({
+    mutationFn: async () => {
+      const res = await authFetch(`/portal/organizations/${orgId}/api-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newKeyName.trim() || undefined }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Failed to create key");
+      return d as { fullKey: string; name: string | null };
+    },
+    onSuccess: (d) => {
+      setCreatedKey({ fullKey: d.fullKey, name: d.name });
+      setCreatingKey(false);
+      setNewKeyName("");
+      qc.invalidateQueries({ queryKey: ["portal-org-keys", orgId] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const revokeKey = useMutation({
+    mutationFn: async (keyId: number) => {
+      const res = await authFetch(`/portal/organizations/${orgId}/api-keys/${keyId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Failed to revoke");
+    },
+    onSuccess: () => {
+      toast({ title: "Key revoked" });
+      qc.invalidateQueries({ queryKey: ["portal-org-keys", orgId] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  // ── Org spending limits ───────────────────────────────────────────────────
+  const saveLimits = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, number | null> = {
+        dailySpendLimitUsd: dailyCap === "" ? null : Number(dailyCap),
+        monthlySpendLimitUsd: monthlyCap === "" ? null : Number(monthlyCap),
+      };
+      const res = await authFetch(`/portal/organizations/${orgId}/spending-limits`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Failed to save limits");
+    },
+    onSuccess: () => {
+      toast({ title: "Spending limits updated" });
+      setEditingLimits(false);
+      qc.invalidateQueries({ queryKey: ["portal-org", orgId] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
 
   const { data: invitesData } = useQuery({
     queryKey: ["portal-org-invites", orgId],
@@ -239,6 +325,80 @@ export default function OrganizationDetail() {
         </Card>
       )}
 
+      {/* ── API Keys ───────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>API Keys</CardTitle>
+          {isOwnerOrAdmin && (
+            <Button size="sm" onClick={() => { setNewKeyName(""); setCreatingKey(true); }}>
+              Create Key
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {!keysData?.apiKeys.length ? (
+            <p className="text-sm text-muted-foreground">No organization API keys yet. Keys created here debit the organization's credit pool, not individual members.</p>
+          ) : (
+            <div className="space-y-2">
+              {keysData.apiKeys.map((k) => (
+                <div key={k.id} className="border rounded-lg p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{k.name || "Unnamed Key"}</p>
+                      {k.isActive
+                        ? <Badge variant="outline" className="text-[10px]">Active</Badge>
+                        : <Badge variant="secondary" className="text-[10px]">Revoked</Badge>}
+                    </div>
+                    <code className="block text-xs text-muted-foreground mt-0.5">{k.keyPrefix}…</code>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Created {new Date(k.createdAt).toLocaleDateString()} · Last used {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "never"}
+                    </p>
+                  </div>
+                  {isOwnerOrAdmin && k.isActive && (
+                    <Button variant="ghost" size="icon" onClick={() => { if (confirm("Revoke this key? Apps using it will stop working immediately.")) revokeKey.mutate(k.id); }}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Spending Limits ────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Spending Limits</CardTitle>
+          {isOwnerOrAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setDailyCap(organization.dailySpendLimitUsd?.toString() ?? "");
+                setMonthlyCap(organization.monthlySpendLimitUsd?.toString() ?? "");
+                setEditingLimits(true);
+              }}
+            >
+              Edit
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Daily cap (USD)</p>
+              <p className="text-lg font-semibold">{organization.dailySpendLimitUsd != null ? `$${organization.dailySpendLimitUsd.toFixed(2)}` : "No limit"}</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Monthly cap (USD)</p>
+              <p className="text-lg font-semibold">{organization.monthlySpendLimitUsd != null ? `$${organization.monthlySpendLimitUsd.toFixed(2)}` : "No limit"}</p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">When a cap is reached, all org API keys return HTTP 429 until the period resets or the cap is raised.</p>
+        </CardContent>
+      </Card>
+
       {organization.role === "owner" && (
         <Card>
           <CardHeader><CardTitle>{t("orgs.dangerZone")}</CardTitle></CardHeader>
@@ -272,6 +432,64 @@ export default function OrganizationDetail() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setInviting(false)}>{t("common.cancel")}</Button>
             <Button onClick={() => sendInvite.mutate()} disabled={!inviteEmail || sendInvite.isPending}>{t("orgs.invite.send")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={creatingKey} onOpenChange={setCreatingKey}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Create Organization API Key</DialogTitle></DialogHeader>
+          <div className="grid gap-2">
+            <Label>Name (optional)</Label>
+            <Input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} placeholder="e.g. Production, CI" />
+            <p className="text-xs text-muted-foreground">This key will debit the organization's credit pool on every call.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreatingKey(false)}>Cancel</Button>
+            <Button onClick={() => createKey.mutate()} disabled={createKey.isPending}>
+              {createKey.isPending ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!createdKey} onOpenChange={(o) => { if (!o) setCreatedKey(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>API Key Created</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Copy this key now — it will not be shown again.</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-3 py-2 bg-muted rounded text-xs font-mono break-all">{createdKey?.fullKey}</code>
+              <Button variant="outline" size="icon" onClick={() => { if (createdKey) { navigator.clipboard.writeText(createdKey.fullKey); toast({ title: "Copied" }); } }}>
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setCreatedKey(null)}>I've saved my key</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editingLimits} onOpenChange={setEditingLimits}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Spending Limits</DialogTitle></DialogHeader>
+          <div className="grid gap-3">
+            <div>
+              <Label>Daily cap (USD)</Label>
+              <Input type="number" min="0" step="0.01" value={dailyCap} onChange={(e) => setDailyCap(e.target.value)} placeholder="No limit" />
+            </div>
+            <div>
+              <Label>Monthly cap (USD)</Label>
+              <Input type="number" min="0" step="0.01" value={monthlyCap} onChange={(e) => setMonthlyCap(e.target.value)} placeholder="No limit" />
+            </div>
+            <p className="text-xs text-muted-foreground">Leave blank to remove a cap.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingLimits(false)}>Cancel</Button>
+            <Button onClick={() => saveLimits.mutate()} disabled={saveLimits.isPending}>
+              {saveLimits.isPending ? "Saving..." : "Save"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

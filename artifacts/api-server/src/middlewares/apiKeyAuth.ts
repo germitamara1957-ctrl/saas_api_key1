@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import { eq } from "drizzle-orm";
-import { db, apiKeysTable, plansTable, usersTable, type ApiKey, type Plan } from "@workspace/db";
+import { db, apiKeysTable, plansTable, usersTable, organizationsTable, type ApiKey, type Plan } from "@workspace/db";
 import { hashApiKey } from "../lib/crypto";
 import { sendEmail, buildLowCreditEmail } from "../lib/email";
 import { logger } from "../lib/logger";
-import { checkSpendingLimits } from "../lib/spendingLimits";
+import { checkSpendingLimits, checkOrgSpendingLimits } from "../lib/spendingLimits";
 import { sql } from "drizzle-orm";
 import { usageLogsTable } from "@workspace/db";
+import type { BillingTarget } from "../lib/orgUtils";
 
 export type ApiKeyWithRelations = ApiKey & {
   plan: Plan;
@@ -16,6 +17,8 @@ export type ApiKeyWithRelations = ApiKey & {
   subscriptionCredit: number;
   /** top-up credit — works on all models */
   topupCredit: number;
+  /** Resolved billing target — debit/log against this pool. */
+  billingTarget: BillingTarget;
 };
 
 declare global {
@@ -90,25 +93,64 @@ export async function requireApiKey(
     .where(eq(usersTable.id, key.userId))
     .limit(1);
 
-  // T2: Enforce email verification for API access
-  if (!userRow?.emailVerified) {
+  // T2: Enforce email verification for API access — but ONLY for personal keys.
+  // Org-bound keys are owned by the organization and used in service/CI
+  // contexts; gating them on the human creator's verification state would let
+  // a single un-verified creator break service traffic for the whole org.
+  // Verification is enforced at key-creation time in the portal instead.
+  if (!key.organizationId && !userRow?.emailVerified) {
     res.status(403).json({
       error: "Email verification required. Please verify your email address before making API calls. Check your inbox for the verification link.",
     });
     return;
   }
 
-  const subscriptionCredit = userRow?.creditBalance ?? 0;
-  const topupCredit = userRow?.topupCreditBalance ?? 0;
+  // ─── Resolve billing target (user vs org) ──────────────────────────────────
+  // If the key is bound to an organization, debit/log against the org's credit
+  // pool. Otherwise fall back to the owning user's pool (legacy personal keys).
+  let billingTarget: BillingTarget;
+  let subscriptionCredit: number;
+  let topupCredit: number;
+
+  if (key.organizationId) {
+    const [org] = await db
+      .select({
+        id: organizationsTable.id,
+        creditBalance: organizationsTable.creditBalance,
+        topupCreditBalance: organizationsTable.topupCreditBalance,
+      })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.id, key.organizationId))
+      .limit(1);
+
+    if (!org) {
+      res.status(403).json({ error: "This API key is bound to an organization that no longer exists. Please contact your administrator." });
+      return;
+    }
+    subscriptionCredit = org.creditBalance;
+    topupCredit = org.topupCreditBalance;
+    billingTarget = { targetType: "org", id: org.id, creditBalance: subscriptionCredit, topupCreditBalance: topupCredit };
+  } else {
+    subscriptionCredit = userRow?.creditBalance ?? 0;
+    topupCredit = userRow?.topupCreditBalance ?? 0;
+    billingTarget = { targetType: "user", id: key.userId, creditBalance: subscriptionCredit, topupCreditBalance: topupCredit };
+  }
+
   const accountCreditBalance = subscriptionCredit + topupCredit;
 
   if (accountCreditBalance <= 0) {
-    res.status(402).json({ error: "Insufficient credits. Please contact your administrator to top up your account." });
+    res.status(402).json({
+      error: billingTarget.targetType === "org"
+        ? "Insufficient credits in the organization pool. Please ask an organization owner/admin to top up."
+        : "Insufficient credits. Please contact your administrator to top up your account.",
+    });
     return;
   }
 
-  // Spending limits enforcement (daily / monthly user-defined caps)
-  const spendCheck = await checkSpendingLimits(key.userId);
+  // Spending limits enforcement (daily / monthly caps)
+  const spendCheck = billingTarget.targetType === "org"
+    ? await checkOrgSpendingLimits(billingTarget.id)
+    : await checkSpendingLimits(key.userId);
   if (!spendCheck.allowed) {
     res.status(429).json({
       error: spendCheck.reason ?? "Spending limit reached",
@@ -173,7 +215,7 @@ export async function requireApiKey(
     }
   }
 
-  req.apiKey = { ...key, plan, accountCreditBalance, subscriptionCredit, topupCredit };
+  req.apiKey = { ...key, plan, accountCreditBalance, subscriptionCredit, topupCredit, billingTarget };
 
   await db
     .update(apiKeysTable)
@@ -228,6 +270,13 @@ export async function requireApiKeyLight(
     return;
   }
 
-  req.apiKey = { ...key, plan: plan ?? ({} as Plan), accountCreditBalance: 0, subscriptionCredit: 0, topupCredit: 0 };
+  req.apiKey = {
+    ...key,
+    plan: plan ?? ({} as Plan),
+    accountCreditBalance: 0,
+    subscriptionCredit: 0,
+    topupCredit: 0,
+    billingTarget: { targetType: "user", id: key.userId, creditBalance: 0, topupCreditBalance: 0 },
+  };
   next();
 }

@@ -1,6 +1,7 @@
 import { eq, sql, and } from "drizzle-orm";
-import { db, usersTable, usageLogsTable } from "@workspace/db";
+import { db, usersTable, usageLogsTable, organizationsTable } from "@workspace/db";
 import { calculateChatCost } from "./billing";
+import type { BillingTarget } from "./orgUtils";
 
 // ── Think-tag filter ────────────────────────────────────────────────────────
 // Some reasoning models (MiniMax-M2, DeepSeek-R1, Kimi-K2, etc.) emit
@@ -79,8 +80,20 @@ export class ThinkTagFilter {
 // This prevents the security loophole where a Free-plan user could exploit
 // premium models using subscription credit gifted by their plan.
 
+/**
+ * Atomic split-balance deduction with org/user routing.
+ *
+ * `target` decides which credit pool to debit:
+ *   - { targetType: 'user', id: userId, ... }  → debits users.credit_balance/topup_credit_balance
+ *   - { targetType: 'org',  id: orgId,  ... }  → debits organizations.credit_balance/topup_credit_balance
+ *
+ * usage_logs row is stamped with `apiKeyId` and (when target is an org) `organizationId`,
+ * enabling org-scoped analytics and spend-cap enforcement without joining api_keys.
+ *
+ * Backward-compat overload: passing a number as the first arg is treated as a user id.
+ */
 export async function deductAndLog(
-  userId: number,
+  targetOrUserId: BillingTarget | number,
   apiKeyId: number,
   model: string,
   requestId: string,
@@ -89,51 +102,22 @@ export async function deductAndLog(
   costUsd: number,
   options?: { modelInPlan?: boolean },
 ): Promise<boolean> {
+  const target: BillingTarget = typeof targetOrUserId === "number"
+    ? { targetType: "user", id: targetOrUserId, creditBalance: 0, topupCreditBalance: 0 }
+    : targetOrUserId;
+
   const totalTokens = inputTokens + outputTokens;
-  // Default true for backward compat when caller hasn't supplied the flag
   const modelInPlan = options?.modelInPlan ?? true;
 
-  // Atomic split-balance deduction in a single SQL UPDATE.
-  // - When modelInPlan=true: subscription first (capped at sub balance), then top-up covers remainder.
-  // - When modelInPlan=false: top-up covers the entire cost; subscription untouched.
-  // The WHERE clause guarantees the combined available balance covers costUsd.
-  const updated = modelInPlan
-    ? await db
-        .update(usersTable)
-        .set({
-          creditBalance: sql`GREATEST(${usersTable.creditBalance} - ${costUsd}, 0)`,
-          topupCreditBalance: sql`${usersTable.topupCreditBalance} - GREATEST(${costUsd} - ${usersTable.creditBalance}, 0)`,
-        })
-        .where(
-          and(
-            eq(usersTable.id, userId),
-            sql`(${usersTable.creditBalance} + ${usersTable.topupCreditBalance}) >= ${costUsd}`,
-          ),
-        )
-        .returning({
-          subscriptionCredit: usersTable.creditBalance,
-          topupCredit: usersTable.topupCreditBalance,
-        })
-    : await db
-        .update(usersTable)
-        .set({
-          topupCreditBalance: sql`${usersTable.topupCreditBalance} - ${costUsd}`,
-        })
-        .where(
-          and(
-            eq(usersTable.id, userId),
-            sql`${usersTable.topupCreditBalance} >= ${costUsd}`,
-          ),
-        )
-        .returning({
-          subscriptionCredit: usersTable.creditBalance,
-          topupCredit: usersTable.topupCreditBalance,
-        });
-
-  const sufficient = updated.length > 0;
+  // Pick the table to debit based on target type. Same SQL shape: split-balance
+  // with subscription consumed first (when modelInPlan), then top-up.
+  const sufficient = target.targetType === "org"
+    ? await deductFromOrg(target.id, costUsd, modelInPlan)
+    : await deductFromUser(target.id, costUsd, modelInPlan);
 
   await db.insert(usageLogsTable).values({
     apiKeyId,
+    organizationId: target.targetType === "org" ? target.id : null,
     model,
     inputTokens,
     outputTokens,
@@ -149,6 +133,42 @@ export async function deductAndLog(
   });
 
   return sufficient;
+}
+
+async function deductFromUser(userId: number, costUsd: number, modelInPlan: boolean): Promise<boolean> {
+  const updated = modelInPlan
+    ? await db.update(usersTable).set({
+        creditBalance: sql`GREATEST(${usersTable.creditBalance} - ${costUsd}, 0)`,
+        topupCreditBalance: sql`${usersTable.topupCreditBalance} - GREATEST(${costUsd} - ${usersTable.creditBalance}, 0)`,
+      }).where(and(
+        eq(usersTable.id, userId),
+        sql`(${usersTable.creditBalance} + ${usersTable.topupCreditBalance}) >= ${costUsd}`,
+      )).returning({ id: usersTable.id })
+    : await db.update(usersTable).set({
+        topupCreditBalance: sql`${usersTable.topupCreditBalance} - ${costUsd}`,
+      }).where(and(
+        eq(usersTable.id, userId),
+        sql`${usersTable.topupCreditBalance} >= ${costUsd}`,
+      )).returning({ id: usersTable.id });
+  return updated.length > 0;
+}
+
+async function deductFromOrg(orgId: number, costUsd: number, modelInPlan: boolean): Promise<boolean> {
+  const updated = modelInPlan
+    ? await db.update(organizationsTable).set({
+        creditBalance: sql`GREATEST(${organizationsTable.creditBalance} - ${costUsd}, 0)`,
+        topupCreditBalance: sql`${organizationsTable.topupCreditBalance} - GREATEST(${costUsd} - ${organizationsTable.creditBalance}, 0)`,
+      }).where(and(
+        eq(organizationsTable.id, orgId),
+        sql`(${organizationsTable.creditBalance} + ${organizationsTable.topupCreditBalance}) >= ${costUsd}`,
+      )).returning({ id: organizationsTable.id })
+    : await db.update(organizationsTable).set({
+        topupCreditBalance: sql`${organizationsTable.topupCreditBalance} - ${costUsd}`,
+      }).where(and(
+        eq(organizationsTable.id, orgId),
+        sql`${organizationsTable.topupCreditBalance} >= ${costUsd}`,
+      )).returning({ id: organizationsTable.id });
+  return updated.length > 0;
 }
 
 /**

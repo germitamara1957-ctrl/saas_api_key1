@@ -277,7 +277,7 @@ async function handleChat(
         requestId, status: "error", errorMessage: streamError,
       });
       if (costUsd > 0) {
-        await deductAndLog(apiKey.userId, apiKey.id, model, requestId, inputTokens, outputTokens, costUsd, { modelInPlan });
+        await deductAndLog(apiKey.billingTarget, apiKey.id, model, requestId, inputTokens, outputTokens, costUsd, { modelInPlan });
       }
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({ error: `API error: ${streamError}` })}\n\n`);
@@ -288,7 +288,7 @@ async function handleChat(
     }
 
     const sufficient = await deductAndLog(
-      apiKey.userId, apiKey.id, model, requestId, inputTokens, outputTokens, costUsd, { modelInPlan },
+      apiKey.billingTarget, apiKey.id, model, requestId, inputTokens, outputTokens, costUsd, { modelInPlan },
     );
 
     if (sufficient) {
@@ -344,7 +344,7 @@ async function handleChat(
 
   const costUsd = calculateChatCost(model, chatResult.inputTokens, chatResult.outputTokens);
   const sufficient = await deductAndLog(
-    apiKey.userId, apiKey.id, model, requestId,
+    apiKey.billingTarget, apiKey.id, model, requestId,
     chatResult.inputTokens, chatResult.outputTokens, costUsd, { modelInPlan },
   );
 

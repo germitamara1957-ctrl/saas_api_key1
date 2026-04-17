@@ -265,7 +265,7 @@ router.post("/v1/responses", requireApiKey, async (req, res): Promise<void> => {
       return;
     }
 
-    const sufficient = await deductAndLog(apiKey.userId, apiKey.id, model, requestId, inputTokens, outputTokens, costUsd, { modelInPlan });
+    const sufficient = await deductAndLog(apiKey.billingTarget, apiKey.id, model, requestId, inputTokens, outputTokens, costUsd, { modelInPlan });
     if (!sufficient) {
       const insufficientMsg = modelInPlan
         ? "Insufficient credits to complete this request."
@@ -350,7 +350,7 @@ router.post("/v1/responses", requireApiKey, async (req, res): Promise<void> => {
 
   const costUsd = calculateChatCost(model, chatResult.inputTokens, chatResult.outputTokens);
   const sufficient = await deductAndLog(
-    apiKey.userId, apiKey.id, model, requestId,
+    apiKey.billingTarget, apiKey.id, model, requestId,
     chatResult.inputTokens, chatResult.outputTokens, costUsd, { modelInPlan },
   );
 

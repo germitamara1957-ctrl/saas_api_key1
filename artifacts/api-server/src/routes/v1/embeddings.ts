@@ -95,7 +95,7 @@ router.post("/v1/embeddings", requireApiKey, async (req, res): Promise<void> => 
 
     // Embedding models are not part of plan model lists — bill against top-up only.
     const sufficient = await deductAndLog(
-      apiKey.userId, apiKey.id, model, requestId, totalTokens, 0, costUsd, { modelInPlan: false },
+      apiKey.billingTarget, apiKey.id, model, requestId, totalTokens, 0, costUsd, { modelInPlan: false },
     );
     if (!sufficient) {
       res.status(402).json({ error: { message: "Insufficient top-up credits for embeddings", type: "insufficient_quota" } });
