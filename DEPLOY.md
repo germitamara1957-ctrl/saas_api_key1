@@ -373,6 +373,43 @@ you, skip certbot entirely and use the CDN-managed certificate.
 
 ---
 
+## Two-Factor Authentication (TOTP)
+
+The platform supports TOTP-based 2FA for **both admin accounts and developer
+portal accounts** (Google Authenticator, 1Password, Authy, Microsoft
+Authenticator — anything that speaks RFC 6238).
+
+* Secrets are encrypted at rest with `ENCRYPTION_KEY` (AES-256-GCM).
+* Brute-force protection: dedicated rate limiters apply 30 attempts per
+  15 minutes per IP on the management endpoints (`portalTwoFaRateLimit`,
+  `adminRateLimit` already covers the admin equivalents).
+
+### For admins
+1. Sign in to `/admin`.
+2. Navigate to **Admin → Settings → Two-Factor Authentication**.
+3. Click **Enable 2FA**, scan the QR code with your authenticator app, enter
+   the 6-digit code to confirm. From the next login, you will be asked for
+   the code right after your password.
+
+### For developer/portal users
+1. Sign in to `/portal`.
+2. Navigate to **Portal → Settings → Two-Factor Authentication**.
+3. Same QR + verify flow as above. The portal login page automatically
+   prompts for the 6-digit code on subsequent sign-ins.
+
+### Disabling
+Both UIs require the user to enter a current valid TOTP code before 2FA can
+be turned off — this prevents takeover by anyone with only the password.
+
+### Operator notes
+* Resetting `ENCRYPTION_KEY` will invalidate every stored TOTP secret (and
+  every encrypted API key). Treat it like a primary key.
+* If a user loses their device, an admin can reset their 2FA via
+  `UPDATE users SET totp_enabled=false, totp_secret=NULL WHERE id=…;`
+  The user can then re-enroll on next login.
+
+---
+
 ## Monitoring & alerts
 
 ### Crash reporting — Sentry

@@ -16,7 +16,11 @@
 | **25 نموذج حي** | Gemini 2.5 + 3.x + Imagen + Veo + Grok + DeepSeek + Kimi + MiniMax + Gemma + GLM-5 + Mistral |
 | **فوترة تلقائية** | 1.1× markup، حساب دقيق per-token/image/second، DB cache 5 min |
 | **نظام رصيد مزدوج** | رصيد اشتراك (مقيَّد بخطة) + رصيد إضافي (مفتوح لكل النماذج، لا ينتهي). الخصم تلقائي: اشتراك أولاً ثم إضافي للنماذج داخل الخطة، وإضافي فقط للنماذج خارج الخطة |
-| **إدارة مفاتيح API** | AES-256-GCM تشفير + HMAC-SHA256 hash للبحث |
+| **إدارة مفاتيح API** | AES-256-GCM تشفير + HMAC-SHA256 hash للبحث + تدوير مع مهلة 24 ساعة |
+| **التحقّق الثنائي (2FA)** | TOTP عبر Google Authenticator / 1Password / Authy — مدعوم في حسابات المسؤول وحسابات المطوّر معًا، مع QR Code وحدّ معدّل صارم |
+| **Webhooks موقَّعة** | HMAC-SHA256 على كل بايلود (`X-Signature` + `X-Timestamp`)، مع تدوير السرّ وقت الحاجة |
+| **Idempotency Keys** | رأس `Idempotency-Key` على `/v1/*` يُمنع التكرار خلال 24 ساعة (لا يطبَّق على البث SSE) |
+| **GDPR Export** | تنزيل ZIP لكامل بيانات الحساب من صفحة الإعدادات |
 | **نظام الخطط** | monthly credits · RPM per plan · نماذج مسموح بها |
 | **Rate Limiting** | Token Bucket (DB-backed per user) + IP rate limiter |
 | **حماية المحتوى** | 4 طبقات: Vertex safety + system prompt injection + keyword blacklist (AR+EN) + auto-suspend |
@@ -74,8 +78,8 @@
 | API codegen | Orval (OpenAPI → `lib/api-client-react` React hooks) |
 | Build | esbuild (api-server), Vite (dashboard) |
 | Frontend | React 19 · wouter · TanStack Query v5 · shadcn/ui · recharts |
-| Auth | JWT (localStorage) + scrypt N=16384 |
-| Encryption | AES-256-GCM (API key storage) + HMAC-SHA256 (lookup) |
+| Auth | JWT (localStorage) + scrypt N=16384 + TOTP 2FA (otplib + qrcode) |
+| Encryption | AES-256-GCM (API key storage + 2FA secrets) + HMAC-SHA256 (lookup + webhook signing) |
 | Logging | pino + pino-http |
 | Testing | Vitest — 193 tests · 17 test files (billing, crypto, auth, admin, portal, v1) |
 | i18n | react-i18next (العربية + English) |
@@ -256,8 +260,13 @@ curl -H "Authorization: Bearer sk-xxx" https://your-domain.replit.app/v1/models
 | الطبقة | التقنية |
 |--------|---------|
 | كلمات المرور | scrypt N=16384 + salt + `timingSafeEqual` |
-| مفاتيح API | HMAC-SHA256 للبحث + AES-256-GCM للعرض |
+| مفاتيح API | HMAC-SHA256 للبحث + AES-256-GCM للعرض + تدوير بمهلة 24 ساعة |
+| التحقّق الثنائي 2FA | TOTP (RFC 6238) — متاح للمسؤول وللمطوّر، السرّ مشفّر AES-256-GCM، حدّ معدّل 30 محاولة/15 دقيقة لكل IP |
 | JWT | localStorage · 7 أيام |
+| Webhooks | HMAC-SHA256 على البايلود + ختم زمني، السرّ قابل للتدوير |
+| Idempotency | تخزين الاستجابة 24 ساعة لكل `(apiKeyId, Idempotency-Key)` — تخطّي تلقائي للبث SSE |
+| CSP | تفعيل كامل لسياسة أمان المحتوى مع السماح بـ YouTube embeds |
+| Crash reporting | Sentry (مفعَّل عند توفّر `SENTRY_DSN`) |
 | Content Safety | Vertex + System Prompt + Keyword Blacklist (AR+EN) + Auto-Suspend |
 
 ---

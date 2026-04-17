@@ -264,6 +264,34 @@ Do **not** hardcode any payment credentials. Always store them as Replit Secrets
 
 ## Recent Changes (Apr 2026)
 
+### Session 28 — Production-hardening sprint (T01–T12) + Portal 2FA (T03b)
+
+Twelve-feature production hardening sweep, then extended 2FA from admin-only to also cover developer/portal accounts on user request.
+
+**Sprint deliverables (T01–T12):**
+1. **T01 — HMAC-signed webhooks**: `webhooks.secret` column (AES-encrypted, auto-generated), every dispatched payload signed with `X-Signature: sha256=<hmac>` + `X-Timestamp`. Secret shown once on creation; rotate endpoint at `POST /api/portal/webhooks/:id/rotate-secret` (immediate rotation by design — old secret stops working). Portal `Webhooks.tsx` shows "Rotate Secret" button.
+2. **T02 — Idempotency keys**: `Idempotency-Key` header on `/v1/*` cached for 24h keyed by `(apiKeyId, key)`. Middleware skips `text/event-stream` and `body.stream=true` so SSE is never broken.
+3. **T03 — Admin TOTP 2FA**: `users.totpSecret` (encrypted) + `users.totpEnabled` columns; `/api/admin/2fa/{setup,verify,disable}`; admin login gate returns `401 + totpRequired:true` when 2FA enabled. Admin Settings has full 2FA card with QR.
+4. **T04 — GDPR export**: `GET /api/portal/me/export` streams a ZIP with profile/keys/usage/webhooks/etc. UI download card on portal Settings (AR/EN).
+5. **T05 — CSP**: Replaced disabled CSP with proper directives — allows YouTube embeds (frame-src), self-hosted assets, inline styles for shadcn.
+6. **T06+T07 — Backup + SSL docs**: Cron + RETENTION_DAYS / S3_BUCKET section in DEPLOY.md; certbot install + renew cron + nginx reload hook in DEPLOY.md.
+7. **T08 — Monitoring**: Sentry SDK wired in api-server (gated on `SENTRY_DSN`); UptimeRobot setup pointing at `/healthz` documented.
+8. **T09 — CI/CD**: `.github/workflows/ci.yml` (typecheck + build) and `deploy.yml` (SSH deploy on main push, sections for user SSH key) created.
+9. **T10 — Key rotation**: `POST /api/portal/api-keys/:id/rotate` issues a new key, marks old key with `expiresAt = now + 24h`. Both `requireApiKey` and `requireApiKeyLight` enforce `expiresAt`. Portal `ApiKeys.tsx` has Rotate icon + confirm dialog + one-time fullKey reveal.
+10. **T11 — Test fixes**: 52 → 22 failing (remaining 22 confirmed pre-existing db-mock chain issue, deferred).
+11. **T12 — OpenAPI admin docs**: `lib/openapi.ts` extended; `/api/admin/openapi.json` exposed.
+
+**T03b — Portal 2FA (this session, on top of the sprint):**
+- New `routes/portal/twofa.ts` mirroring `admin/twofa.ts`: `/api/portal/2fa/{status,setup,verify,disable}`, reuses the same `users.totp_secret` / `totp_enabled` columns.
+- Mounted at `/portal/2fa` with `requireAuth` + a new `portalTwoFaRateLimit` (30 req / 15 min / IP) added to `middlewares/adminRateLimit.ts` for brute-force protection on verify/disable.
+- `routes/portal/auth.ts` login flow: when `user.totpEnabled`, returns `401 + {totpRequired:true}` until a valid 6-digit `totpCode` is provided.
+- `pages/portal/Settings.tsx`: new `PortalTwoFactorCard` (status fetch, QR setup, verify-enable, disable-with-code) — AR/EN i18n.
+- `pages/portal/Login.tsx`: replaced `usePortalLogin` with a small `portalLoginRequest` fetch helper because the generated `LoginRequest` schema doesn't include `totpCode`. On `401+totpRequired`, renders a 6-digit code input (autoFocus, `autoComplete="one-time-code"`) and resubmits with email+password+code.
+
+Architect review iterations: round 1 caught a `/portal/2fa/portal/2fa/*` double-prefix bug (fixed by switching internal route paths to relative) and missing rate limit (added); round 2 caught the missing portal Login UX for `totpRequired` (added two-step prompt); round 3 = PASS, no remaining critical/high issues. Typecheck clean across api-server + dashboard.
+
+Architect review of the full sprint diff: PASS after three follow-up fixes — `expiresAt` enforcement added to `requireApiKey` + `requireApiKeyLight`, idempotency middleware skips streams, `usage_logs` column names corrected (`inputTokens`/`outputTokens`).
+
 ### Session 15 — Five new platform features
 
 Five features delivered in one session. Three already existed; two are new.
