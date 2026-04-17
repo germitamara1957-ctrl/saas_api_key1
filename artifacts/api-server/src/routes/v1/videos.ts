@@ -182,14 +182,22 @@ router.post("/v1/videos", videoBodyParser, requireApiKey, async (req, res): Prom
     if (/duration/i.test(result.error) && /must|exceed|max/i.test(result.error)) {
       message = `${reverseMapModel(veoModel)} (powered by ${veoModel}) supports up to ${maxDuration} seconds. ${result.error}`;
     }
-    res.status(result.status).json({
-      error: {
-        message,
-        type: result.status === 429 ? "rate_limit_exceeded"
-            : result.status === 402 ? "insufficient_credit"
-            : result.status === 403 ? "model_not_allowed"
-            : "api_error",
-      },
+    // Rewrite Vertex transient failures (503/UNAVAILABLE etc.) into a clear,
+    // actionable message — and surface them as 503 (not 502) so OpenAI clients
+    // treat them as retryable.
+    let httpStatus = result.status;
+    let errType: string =
+      result.status === 429 ? "rate_limit_exceeded"
+      : result.status === 402 ? "insufficient_credit"
+      : result.status === 403 ? "model_not_allowed"
+      : "api_error";
+    if (result.status === 502 && /unavailable|UNAVAILABLE|503|500|504|temporarily/i.test(result.error)) {
+      message = "Vertex AI is temporarily unavailable. Please retry your request in 30-60 seconds. (No credit was charged.)";
+      httpStatus = 503;
+      errType = "service_unavailable";
+    }
+    res.status(httpStatus).json({
+      error: { message, type: errType },
     });
     return;
   }

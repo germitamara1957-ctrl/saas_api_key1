@@ -11,8 +11,14 @@ import { db, usersTable, usageLogsTable } from "@workspace/db";
 import type { ApiKeyWithRelations } from "../middlewares/apiKeyAuth";
 import { checkRateLimit } from "./rateLimit";
 import { generateVideoWithVeo, getVideoJobStatus, normalizeToPlanModelId } from "./vertexai";
+import { VertexTransientError } from "./vertexai-veo";
 import { calculateVideoCost } from "./billing";
 import { isModelInPlan } from "./chatUtils";
+import { logger } from "./logger";
+
+// How long a job may stay "pending" while Vertex returns transient errors
+// before we give up, refund, and surface a permanent failure to the client.
+const STALE_JOB_GRACE_MS = 30 * 60 * 1000; // 30 minutes
 
 // ─── In-memory idempotency cache ─────────────────────────────────────────────
 const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
@@ -41,11 +47,34 @@ function getIdempotent(key: string): IdempotentEntry | null {
 }
 
 // Poll a Veo operation until it completes or the timeout elapses.
+// Tolerates up to 5 *consecutive* transient errors so brief Vertex outages
+// (the "Visibility check unavailable" 503 we see in the wild) don't kill
+// long-running 8-second video jobs.
+const MAX_CONSECUTIVE_POLL_ERRORS = 5;
 export async function waitForVideo(operationName: string, timeoutMs: number, pollMs = 5000) {
   const deadline = Date.now() + timeoutMs;
+  let consecutiveErrors = 0;
   while (Date.now() < deadline) {
-    const status = await getVideoJobStatus(operationName);
-    if (status.done) return status;
+    try {
+      const status = await getVideoJobStatus(operationName);
+      consecutiveErrors = 0;
+      if (status.done) return status;
+    } catch (err) {
+      if (err instanceof VertexTransientError) {
+        consecutiveErrors++;
+        logger.warn({ operationName, consecutiveErrors, statusCode: err.statusCode },
+          "Transient error polling Veo — will retry");
+        if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+          return {
+            done: true as const,
+            error: `Vertex AI is temporarily unavailable (HTTP ${err.statusCode}) and ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive status checks failed. Please retry your request in a minute.`,
+          };
+        }
+      } else {
+        // Permanent error — fail fast
+        throw err;
+      }
+    }
     await new Promise((r) => setTimeout(r, pollMs));
   }
   return { done: false as const };
@@ -248,6 +277,7 @@ export async function getVideoStatusForUser(apiKey: ApiKeyWithRelations, jobId: 
       jobOperationId: usageLogsTable.jobOperationId,
       model: usageLogsTable.model,
       costUsd: usageLogsTable.costUsd,
+      createdAt: usageLogsTable.createdAt,
     })
     .from(usageLogsTable)
     .where(and(eq(usageLogsTable.requestId, jobId), eq(usageLogsTable.apiKeyId, apiKey.id)))
@@ -291,6 +321,78 @@ export async function getVideoStatusForUser(apiKey: ApiKeyWithRelations, jobId: 
       costUsd: row.costUsd,
     };
   } catch (err) {
+    if (err instanceof VertexTransientError) {
+      // Vertex is temporarily unavailable. If the job is still young, ask the
+      // client to keep polling — retries inside vertexai-veo + a fresh poll
+      // attempt usually clear it. If the job has been stuck > 30 min, give up,
+      // refund, and surface a permanent failure so the user isn't billed for
+      // a video they'll never receive.
+      const ageMs = Date.now() - new Date(row.createdAt).getTime();
+      if (ageMs < STALE_JOB_GRACE_MS) {
+        logger.warn({ jobId, ageMs, statusCode: err.statusCode },
+          "Transient Vertex error during status check — returning pending so client retries");
+        return {
+          ok: true,
+          jobId,
+          status: "pending",
+          videoUri: null,
+          errorMessage: null,
+          model: row.model,
+          costUsd: row.costUsd,
+        };
+      }
+
+      // Stale-job give-up path. Race-safety: do ONE final status re-check
+      // before refunding — if the job actually completed between polls, we
+      // must NOT refund. The atomic claim inside refundFailedVideoJob (WHERE
+      // status='success') gives us a second guard: if a concurrent worker has
+      // already settled the log row, our refund will no-op.
+      try {
+        const finalCheck = await getVideoJobStatus(row.jobOperationId);
+        if (finalCheck.done) {
+          const finalErr = "error" in finalCheck ? finalCheck.error : undefined;
+          let refund = { refunded: false, amount: 0 };
+          if (finalErr) {
+            refund = await refundFailedVideoJob(jobId, apiKey.id, apiKey.userId, finalErr);
+          }
+          return {
+            ok: true,
+            jobId,
+            status: finalErr ? "failed" : "completed",
+            videoUri: finalErr ? null : (finalCheck.videoUri ?? null),
+            errorMessage: finalErr ?? null,
+            model: row.model,
+            costUsd: finalErr && refund.refunded ? 0 : row.costUsd,
+            refunded: finalErr ? refund.refunded : undefined,
+            refundAmount: finalErr && refund.refunded ? refund.amount : undefined,
+          };
+        }
+        // Final check still says "pending" without throwing → safe to give up
+      } catch (finalErr) {
+        // Final check ALSO threw a transient error — Vertex is genuinely
+        // stuck. Proceed to refund. (A non-transient error is even more
+        // grounds to refund.)
+        if (!(finalErr instanceof VertexTransientError)) {
+          logger.warn({ jobId, finalErr }, "Final re-check failed with permanent error; refunding");
+        }
+      }
+
+      const reason = `Vertex AI was unavailable for ${Math.round(ageMs / 60000)} minutes. ${err.message}`;
+      const refund = await refundFailedVideoJob(jobId, apiKey.id, apiKey.userId, reason);
+      logger.error({ jobId, ageMs, statusCode: err.statusCode, refunded: refund.refunded },
+        "Gave up on stale video job after prolonged Vertex unavailability");
+      return {
+        ok: true,
+        jobId,
+        status: "failed",
+        videoUri: null,
+        errorMessage: `Vertex AI was unavailable (HTTP ${err.statusCode}) for too long. Your credit was refunded — please retry.`,
+        model: row.model,
+        costUsd: refund.refunded ? 0 : row.costUsd,
+        refunded: refund.refunded,
+        refundAmount: refund.refunded ? refund.amount : undefined,
+      };
+    }
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     return { ok: false, status: 502, error: `Veo status check failed: ${errorMessage}` };
   }

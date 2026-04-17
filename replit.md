@@ -507,3 +507,22 @@ Closed the gap where plan assignments lived "forever" with no expiry. New mechan
 **Verification**: 6 smoke scenarios pass (active sub debits subscription; expired sub debits topup only; Free auto-renews; Paid lapses with planId preserved; admin extend bumps +30d; `/portal/me` exposes the field) plus a critical regression test confirming an expired user with topup=$0 is rejected with `model_not_available` instead of silently draining subscription credit.
 
 **Known follow-up (pre-existing, out of scope here)**: `/v1/generate` and `/v1/images/generations` still deduct directly from `usersTable` instead of using `apiKey.billingTarget`/`deductAndLog`, so org-bound keys on those two endpoints can mis-bill the creator user. To fix in a future pass.
+
+### Session 21 — Vertex AI transient-error resilience for video generation
+
+User reported that 8-second videos fail with `503 "Visibility check was unavailable"` while 4-second videos work. Root cause: longer videos require more polling cycles, increasing the chance of hitting a transient Google Vertex AI infrastructure blip. The previous code threw immediately on any non-2xx response.
+
+1. **`vertexai-veo.ts` — new `vertexFetchWithRetry<T>()` helper** with exponential backoff `[300, 800, 2000, 5000]ms` (5 attempts total). Returns parsed JSON directly.
+   - Treats as transient: HTTP `408/425/429/500/502/503/504`, **and** body-level `error.status ∈ {UNAVAILABLE, INTERNAL, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED}` even on HTTP 200 (Vertex long-running operations sometimes return transient errors in a 200 body).
+   - Throws new `VertexTransientError` (with `statusCode` preferring `body.error.code` over HTTP status for telemetry) when retries are exhausted on transient failures. Permanent errors still throw plain `Error`.
+   - `generateVideoWithVeo` now also defends against HTTP 200 + permanent body error (e.g. `INVALID_ARGUMENT`, prompt blocked by safety filter) — previously these would silently produce an empty `operationName` and bill the user.
+
+2. **`getVideoJobStatus`** classifies `data.error.status`: transient ones throw `VertexTransientError`; permanent ones still return `{done:true, error}` so the existing refund path settles them as failed jobs.
+
+3. **`videoService.ts` — polling tolerance**:
+   - `waitForVideo` now tolerates up to **5 consecutive** transient throws (counter resets on success). Used by the native blocking `/v1/video` route.
+   - `getVideoStatusForUser` (used by Sora-shaped `/v1/videos/:id` polling — n8n calls this) catches transient throws: if the job is younger than **30 minutes**, returns `pending` so the client keeps polling; if older, performs a **final re-check** before refunding (so a job that completes between polls is *not* refunded by mistake), then atomically refunds via existing `refundFailedVideoJob` (which uses `WHERE status='success'` for double-refund safety).
+
+4. **`/v1/videos` POST handler** rewrites Veo submission failures that look transient (matching `/unavailable|503|500|504|temporarily/`) into a clean **HTTP 503 `service_unavailable`** response with message: _"Vertex AI is temporarily unavailable. Please retry your request in 30-60 seconds. (No credit was charged.)"_ — instead of the confusing `502 Bad gateway`.
+
+**Verification**: build clean, all expected strings present in compiled output, api-server restarted healthy. Architect re-review confirmed all four fixes are correct (initial review found two more edge cases — both addressed in this same batch).
