@@ -561,3 +561,15 @@ User mandate: "لا اريد اي ديون تقنية" (no technical debt). Clea
 4. **Verified zero new test regressions** — 52 pre-existing test failures (vitest 4 migration debt + missing `billingTarget` in mocks) confirmed unchanged by reverting `generate.ts` to HEAD: identical 9/9 failures. Test infrastructure cleanup is its own separate scope.
 
 Architect approved. Net diff: **−56 LOC** across 4 route files. Org-level billing now works on image/text generation endpoints (was previously user-only).
+
+### Session 24 — Intermittent login HTTP 500 fix
+
+User report: occasional `HTTP 500 : Internal Server Error` on `/portal/auth/login` requiring page refresh + re-typing. Root cause: login handler had **no try/catch**, so any transient DB error (Postgres serialization 40001, connection drop 08006, ECONNRESET on Neon idle teardown, or race on the `INSERT...ON CONFLICT` in `ipRateLimit`) bubbled to the global error handler as an opaque 500 — no useful logs, no client-friendly message.
+
+Fix:
+1. **New helper `lib/dbRetry.ts`** — `withDbRetry(fn, opts)` retries on transient PG codes (`40001`/`40P01`/`57Pxx`/`08xxx`) and Node socket errors (`ECONNRESET`/`ETIMEDOUT`/`EPIPE`/`ENOTFOUND`/`EAI_AGAIN`/`ECONNREFUSED`) with exponential backoff (3 attempts, 50 ms base + jitter) and structured `pino` warn logs.
+2. **`ipRateLimit.check`** — wrapped the upsert with `withDbRetry` (retry-safe: ON CONFLICT handles a duplicate first attempt).
+3. **`portal/auth.ts` login + register** — full `try/catch` with structured `logger.error({ err, email, ip }, ...)` and **HTTP 503** (not 500) + user-friendly message, signaling "transient, retry meaningful" to clients/load balancers.
+4. **`resetLoginLimit` after successful auth** is now non-blocking — its failure logs `warn` and the user still gets logged in.
+
+Architect approved. Future work: wrap the `db.transaction` blocks (register, account deletion) in `withDbRetry` to handle commit-time serialization failures.
