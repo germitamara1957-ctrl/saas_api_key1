@@ -19,6 +19,11 @@ export const usersTable = pgTable("users", {
   passwordResetTokenExpiresAt: timestamp("password_reset_token_expires_at", { withTimezone: true }),
   creditWarningEmailSentAt: timestamp("credit_warning_email_sent_at", { withTimezone: true }),
   currentPlanId: integer("current_plan_id").references(() => plansTable.id, { onDelete: "set null" }),
+  // Subscription period window. When `current_period_end` is in the past the
+  // subscription is considered EXPIRED — `creditBalance` (subscription credit)
+  // becomes unusable for plan-exclusive models, leaving only `topupCreditBalance`.
+  currentPeriodStartedAt: timestamp("current_period_started_at", { withTimezone: true }),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   guardrailViolations: integer("guardrail_violations").notNull().default(0),
   guardrailSuspended: boolean("guardrail_suspended").notNull().default(false),
   // Spending limits (USD). null = no limit. Threshold is 0..1 (e.g. 0.8 = alert at 80%).

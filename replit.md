@@ -486,3 +486,24 @@ Two follow-up fixes after Session 18 to get the gateway live and working with re
 2. **n8n / openai-python multipart support — `POST /v1/videos`**: Real OpenAI Sora API uses `multipart/form-data` (per official spec), and n8n's "Generate a video" node + openai-python/node SDKs all follow it. Our handler only had `express.json()`, so `body.prompt` arrived `undefined` and we returned `400 prompt is required`. Added a content-type-aware preprocessor on `/v1/videos` POST: if request is `multipart/form-data` we run `multer.any()` (memory storage, 25 MB / 32-field cap), otherwise pass through to the existing JSON body. Pure-JSON callers unchanged (full backward compat). Smoke-tested with `curl -F` — returns 401 (auth) instead of 400 (parse), confirming body parses through.
 
 **Verification**: `pnpm --filter @workspace/api-server typecheck` clean. api-server restarted. Production deploy succeeded (commit `36386cd6`). User confirmed n8n now reaches the gateway successfully.
+
+### Session 20 — Subscription Period Lifecycle (expiration + auto-renewal)
+
+Closed the gap where plan assignments lived "forever" with no expiry. New mechanics:
+
+1. **Schema (migration `0004_subscription_expiration`)**: added `current_period_started_at`, `current_period_end` (timestamptz, nullable) to both `users` and `organizations`, plus partial indexes on the end column. Backfilled existing rows with active plans to `now()` / `now() + 30 days`.
+
+2. **Plan-assignment paths set the window**: admin `POST /api/admin/users/:id/upgrade-plan` and portal `POST /api/portal/plans/:planId/enroll` (both planless-key and new-key branches) now stamp `current_period_started_at = now()`, `current_period_end = now() + 30 days`. `GET /portal/me` and `GET /admin/users/:id` expose `currentPeriodEnd` + `currentPeriodStartedAt` + `currentPlanId`.
+
+3. **Runtime gating in `apiKeyAuth.ts`**: when `current_period_end <= now`, the middleware replaces `plan.modelsAllowed` with the sentinel `["__SUBSCRIPTION_EXPIRED__"]` and sets headers `X-Subscription-Status: expired|active|none` + `X-Subscription-Period-End`. **Important**: empty array means "unrestricted" in `isModelInPlan()`, so a non-empty sentinel is required to make every model count as out-of-plan and force the existing chatUtils dual-credit logic to bill from `topup_credit_balance` only. Subscription credit (`credit_balance`) is preserved through expiry — admins can extend and the credit becomes usable again.
+
+4. **Daily cron `runDailySubscriptionRollover()`** (`lib/subscription.ts`, scheduled in `index.ts` at startup + every 24h):
+   - Free plans (`priceUsd === 0`): renew window (+30d) and replace `credit_balance` with `plan.monthlyCredits`.
+   - Paid plans (`priceUsd > 0`): zero `credit_balance`; keep `currentPlanId` so the admin sees what to renew. No auto-charge — payment integration is out of scope.
+   - All updates use a conditional `WHERE id=? AND current_period_end<=now` predicate to stay race-safe with concurrent admin extends/upgrades.
+
+5. **Admin controls**: `POST /api/admin/users/:id/subscription/extend` (body `{days?: 30}`) extends from `max(now, current_period_end)`. `POST /api/admin/users/:id/subscription/end` immediately ends the period. Both audit-logged. UI in `DeveloperDetail.tsx` shows status + `Extend 30 days` / `End Now` buttons. Portal `Dashboard.tsx` shows an Active/Expired badge with days remaining.
+
+**Verification**: 6 smoke scenarios pass (active sub debits subscription; expired sub debits topup only; Free auto-renews; Paid lapses with planId preserved; admin extend bumps +30d; `/portal/me` exposes the field) plus a critical regression test confirming an expired user with topup=$0 is rejected with `model_not_available` instead of silently draining subscription credit.
+
+**Known follow-up (pre-existing, out of scope here)**: `/v1/generate` and `/v1/images/generations` still deduct directly from `usersTable` instead of using `apiKey.billingTarget`/`deductAndLog`, so org-bound keys on those two endpoints can mis-bill the creator user. To fix in a future pass.

@@ -19,6 +19,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/seed.ts"),
       path.resolve(artifactDir, "src/migrate.ts"),
+      path.resolve(artifactDir, "src/scripts/_rollover-once.ts"),
     ],
     platform: "node",
     bundle: true,

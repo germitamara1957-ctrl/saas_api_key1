@@ -65,6 +65,10 @@ export default function PortalDashboard() {
   const currentBalance = me?.totalCreditsBalance ?? 0;
   const subscriptionCredit = (me as { subscriptionCreditBalance?: number } | undefined)?.subscriptionCreditBalance ?? 0;
   const topupCredit = (me as { topupCreditBalance?: number } | undefined)?.topupCreditBalance ?? 0;
+  const periodEndRaw = (me?.user as { currentPeriodEnd?: string | null } | undefined)?.currentPeriodEnd ?? null;
+  const periodEndMs = periodEndRaw ? new Date(periodEndRaw).getTime() : null;
+  const subscriptionExpired = periodEndMs != null && periodEndMs <= Date.now();
+  const subscriptionDaysLeft = periodEndMs != null && !subscriptionExpired ? Math.ceil((periodEndMs - Date.now()) / 86400000) : null;
   const showLowCreditWarning =
     !meLoading && planMonthlyCredits > 0 && currentBalance < planMonthlyCredits * 0.2 && currentBalance > 0;
   const showEmailVerificationBanner =
@@ -156,7 +160,17 @@ export default function PortalDashboard() {
             <div className="text-2xl font-bold text-primary">
               {meLoading ? "-" : `$${subscriptionCredit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}
             </div>
-            <p className="text-xs mt-1 text-primary/80">Plan models only</p>
+            {meLoading ? null : subscriptionExpired ? (
+              <p className="text-xs mt-1 text-destructive font-medium" data-testid="badge-subscription-expired">
+                Subscription expired — contact admin to renew
+              </p>
+            ) : periodEndRaw ? (
+              <p className="text-xs mt-1 text-primary/80" data-testid="badge-subscription-active">
+                Active · {subscriptionDaysLeft} day{subscriptionDaysLeft === 1 ? "" : "s"} left
+              </p>
+            ) : (
+              <p className="text-xs mt-1 text-primary/80">Plan models only</p>
+            )}
           </CardContent>
         </Card>
 

@@ -88,6 +88,7 @@ export async function requireApiKey(
       name: usersTable.name,
       email: usersTable.email,
       creditWarningEmailSentAt: usersTable.creditWarningEmailSentAt,
+      currentPeriodEnd: usersTable.currentPeriodEnd,
     })
     .from(usersTable)
     .where(eq(usersTable.id, key.userId))
@@ -112,12 +113,14 @@ export async function requireApiKey(
   let subscriptionCredit: number;
   let topupCredit: number;
 
+  let periodEnd: Date | null = null;
   if (key.organizationId) {
     const [org] = await db
       .select({
         id: organizationsTable.id,
         creditBalance: organizationsTable.creditBalance,
         topupCreditBalance: organizationsTable.topupCreditBalance,
+        currentPeriodEnd: organizationsTable.currentPeriodEnd,
       })
       .from(organizationsTable)
       .where(eq(organizationsTable.id, key.organizationId))
@@ -129,12 +132,29 @@ export async function requireApiKey(
     }
     subscriptionCredit = org.creditBalance;
     topupCredit = org.topupCreditBalance;
+    periodEnd = org.currentPeriodEnd;
     billingTarget = { targetType: "org", id: org.id, creditBalance: subscriptionCredit, topupCreditBalance: topupCredit };
   } else {
     subscriptionCredit = userRow?.creditBalance ?? 0;
     topupCredit = userRow?.topupCreditBalance ?? 0;
+    periodEnd = userRow?.currentPeriodEnd ?? null;
     billingTarget = { targetType: "user", id: key.userId, creditBalance: subscriptionCredit, topupCreditBalance: topupCredit };
   }
+
+  // ─── Subscription expiry gate ──────────────────────────────────────────────
+  // If the subscription window has lapsed, replace `modelsAllowed` with a
+  // sentinel that cannot match any real model. NOTE: empty array means
+  // "unrestricted" in `isModelInPlan()`, so we MUST use a non-empty sentinel
+  // here. With this, every `isModelInPlan(plan.modelsAllowed, model)` call
+  // returns false during expiry → existing chatUtils logic then forces
+  // deduction from top-up credit only, protecting subscription credit and
+  // making plan-exclusive models unreachable until renewal.
+  const subscriptionExpired = periodEnd != null && periodEnd.getTime() <= Date.now();
+  res.setHeader("X-Subscription-Status", subscriptionExpired ? "expired" : (periodEnd ? "active" : "none"));
+  if (periodEnd) res.setHeader("X-Subscription-Period-End", periodEnd.toISOString());
+  const effectivePlan: Plan = subscriptionExpired
+    ? { ...plan, modelsAllowed: ["__SUBSCRIPTION_EXPIRED__"] }
+    : plan;
 
   const accountCreditBalance = subscriptionCredit + topupCredit;
 
@@ -215,7 +235,7 @@ export async function requireApiKey(
     }
   }
 
-  req.apiKey = { ...key, plan, accountCreditBalance, subscriptionCredit, topupCredit, billingTarget };
+  req.apiKey = { ...key, plan: effectivePlan, accountCreditBalance, subscriptionCredit, topupCredit, billingTarget };
 
   await db
     .update(apiKeysTable)

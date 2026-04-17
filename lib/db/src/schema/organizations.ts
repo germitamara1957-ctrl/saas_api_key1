@@ -12,6 +12,11 @@ export const organizationsTable = pgTable("organizations", {
   // Optional org-level spend caps. NULL = no cap. Independent from per-user/per-key caps.
   dailySpendLimitUsd: doublePrecision("daily_spend_limit_usd"),
   monthlySpendLimitUsd: doublePrecision("monthly_spend_limit_usd"),
+  // Subscription period window (parallel to users). When `current_period_end`
+  // is in the past the org's `creditBalance` (subscription credit) cannot be
+  // used for plan-exclusive models — only `topupCreditBalance` works.
+  currentPeriodStartedAt: timestamp("current_period_started_at", { withTimezone: true }),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [

@@ -132,6 +132,9 @@ router.get("/admin/users/:id", requireAdmin, async (req, res): Promise<void> => 
       emailVerified: usersTable.emailVerified,
       creditBalance: usersTable.creditBalance,
       topupCreditBalance: usersTable.topupCreditBalance,
+      currentPlanId: usersTable.currentPlanId,
+      currentPeriodStartedAt: usersTable.currentPeriodStartedAt,
+      currentPeriodEnd: usersTable.currentPeriodEnd,
       createdAt: usersTable.createdAt,
       updatedAt: usersTable.updatedAt,
     })
@@ -358,6 +361,8 @@ router.post("/admin/users/:id/upgrade-plan", requireAdmin, async (req, res): Pro
       );
     }
 
+    const nowTs = new Date();
+    const periodEnd = new Date(nowTs.getTime() + 30 * 24 * 60 * 60 * 1000);
     const [updated] = await tx
       .update(usersTable)
       .set({
@@ -365,6 +370,9 @@ router.post("/admin/users/:id/upgrade-plan", requireAdmin, async (req, res): Pro
         // Subscription credit replaces (not adds) on plan upgrade — keeps semantics clean.
         // The freshly-granted monthly amount represents the new plan's allowance.
         creditBalance: sql`${creditsToAdd}`,
+        // Reset the subscription window to a fresh 30-day cycle.
+        currentPeriodStartedAt: nowTs,
+        currentPeriodEnd: periodEnd,
       })
       .where(eq(usersTable.id, userId))
       .returning({
@@ -402,6 +410,86 @@ router.post("/admin/users/:id/upgrade-plan", requireAdmin, async (req, res): Pro
     creditsAdded: creditsToAdd,
     keysUpdated: activeKeys.length,
   });
+});
+
+// ── Subscription period management ───────────────────────────────────────────
+router.post("/admin/users/:id/subscription/extend", requireAdmin, async (req, res): Promise<void> => {
+  const actor = req.authUser!;
+  const userId = parseInt(String(req.params.id), 10);
+  if (isNaN(userId) || userId <= 0) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+  const daysRaw = (req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>)["days"] : undefined);
+  const days = typeof daysRaw === "number" && Number.isFinite(daysRaw) && daysRaw > 0 && daysRaw <= 3650 ? daysRaw : 30;
+
+  const [existing] = await db
+    .select({ id: usersTable.id, email: usersTable.email, currentPeriodEnd: usersTable.currentPeriodEnd })
+    .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  // Extend from whichever is later: now or current period end (don't credit lapsed days).
+  const base = existing.currentPeriodEnd && existing.currentPeriodEnd.getTime() > Date.now()
+    ? existing.currentPeriodEnd
+    : new Date();
+  const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+  const updateSet: Record<string, unknown> = { currentPeriodEnd: newEnd };
+  if (!existing.currentPeriodEnd) updateSet["currentPeriodStartedAt"] = new Date();
+  const [updated] = await db.update(usersTable)
+    .set(updateSet)
+    .where(eq(usersTable.id, userId))
+    .returning({ id: usersTable.id, email: usersTable.email, currentPeriodEnd: usersTable.currentPeriodEnd, currentPeriodStartedAt: usersTable.currentPeriodStartedAt });
+
+  await logAuditEvent({
+    action: "user.subscription.extended",
+    actorId: parseInt(actor.sub, 10),
+    actorEmail: actor.email,
+    targetId: userId,
+    targetEmail: updated?.email,
+    details: `Extended subscription by ${days} day(s); new period_end=${newEnd.toISOString()}`,
+    ip: getIp(req),
+  });
+
+  res.json({
+    id: updated!.id,
+    currentPeriodEnd: updated!.currentPeriodEnd,
+    currentPeriodStartedAt: updated!.currentPeriodStartedAt,
+    daysAdded: days,
+  });
+});
+
+router.post("/admin/users/:id/subscription/end", requireAdmin, async (req, res): Promise<void> => {
+  const actor = req.authUser!;
+  const userId = parseInt(String(req.params.id), 10);
+  if (isNaN(userId) || userId <= 0) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+  const now = new Date();
+  const [updated] = await db.update(usersTable)
+    .set({ currentPeriodEnd: now })
+    .where(eq(usersTable.id, userId))
+    .returning({ id: usersTable.id, email: usersTable.email, currentPeriodEnd: usersTable.currentPeriodEnd });
+
+  if (!updated) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  await logAuditEvent({
+    action: "user.subscription.ended",
+    actorId: parseInt(actor.sub, 10),
+    actorEmail: actor.email,
+    targetId: userId,
+    targetEmail: updated.email,
+    details: "Subscription ended immediately by admin",
+    ip: getIp(req),
+  });
+
+  res.json({ id: updated.id, currentPeriodEnd: updated.currentPeriodEnd });
 });
 
 router.post("/admin/users/:id/verify-email", requireAdmin, async (req, res): Promise<void> => {

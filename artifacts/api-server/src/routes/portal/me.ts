@@ -19,6 +19,8 @@ router.get("/portal/me", async (req, res): Promise<void> => {
       topupCreditBalance: usersTable.topupCreditBalance,
       emailVerified: usersTable.emailVerified,
       currentPlanId: usersTable.currentPlanId,
+      currentPeriodStartedAt: usersTable.currentPeriodStartedAt,
+      currentPeriodEnd: usersTable.currentPeriodEnd,
       dailySpendLimitUsd: usersTable.dailySpendLimitUsd,
       monthlySpendLimitUsd: usersTable.monthlySpendLimitUsd,
       spendAlertThreshold: usersTable.spendAlertThreshold,
@@ -441,11 +443,17 @@ router.post("/portal/plans/:planId/enroll", async (req, res): Promise<void> => {
         .set({ planId: plan.id })
         .where(eq(apiKeysTable.id, planlessKey.id));
 
+      const now = new Date();
+      const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const userUpdate: Record<string, unknown> = {
+        currentPlanId: plan.id,
+        currentPeriodStartedAt: now,
+        currentPeriodEnd: periodEnd,
+      };
       if (plan.monthlyCredits > 0) {
-        await tx.update(usersTable)
-          .set({ creditBalance: sql`credit_balance + ${plan.monthlyCredits}` })
-          .where(eq(usersTable.id, userId));
+        userUpdate["creditBalance"] = sql`credit_balance + ${plan.monthlyCredits}`;
       }
+      await tx.update(usersTable).set(userUpdate).where(eq(usersTable.id, userId));
     });
 
     res.json({
@@ -478,11 +486,17 @@ router.post("/portal/plans/:planId/enroll", async (req, res): Promise<void> => {
       isActive: true,
     }).returning();
 
+    const now = new Date();
+    const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const userUpdate: Record<string, unknown> = {
+      currentPlanId: plan.id,
+      currentPeriodStartedAt: now,
+      currentPeriodEnd: periodEnd,
+    };
     if (plan.monthlyCredits > 0) {
-      await tx.update(usersTable)
-        .set({ creditBalance: sql`credit_balance + ${plan.monthlyCredits}` })
-        .where(eq(usersTable.id, userId));
+      userUpdate["creditBalance"] = sql`credit_balance + ${plan.monthlyCredits}`;
     }
+    await tx.update(usersTable).set(userUpdate).where(eq(usersTable.id, userId));
 
     return key!;
   });

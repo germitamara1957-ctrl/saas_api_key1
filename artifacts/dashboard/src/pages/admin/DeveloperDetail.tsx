@@ -280,6 +280,33 @@ export default function AdminDeveloperDetail() {
     }
   };
 
+  const [isSubPending, setIsSubPending] = useState(false);
+  const onExtendSubscription = async (days: number) => {
+    setIsSubPending(true);
+    try {
+      const res = await authFetch(`/api/admin/users/${userId}/subscription/extend`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ days }),
+      });
+      if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? "Failed");
+      toast({ title: "Subscription extended", description: `Added ${days} day(s).` });
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally { setIsSubPending(false); }
+  };
+  const onEndSubscription = async () => {
+    if (!confirm("End this user's subscription immediately? Their plan-exclusive models will be blocked until you extend.")) return;
+    setIsSubPending(true);
+    try {
+      const res = await authFetch(`/api/admin/users/${userId}/subscription/end`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? "Failed");
+      toast({ title: "Subscription ended" });
+      queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally { setIsSubPending(false); }
+  };
+
   const onVerifyEmail = async () => {
     setIsVerifyEmailPending(true);
     try {
@@ -388,6 +415,52 @@ export default function AdminDeveloperDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Subscription Period ──────────────────────────────────── */}
+      {(() => {
+        const periodEnd = (user as unknown as { currentPeriodEnd?: string | null }).currentPeriodEnd;
+        const planId = (user as unknown as { currentPlanId?: number | null }).currentPlanId;
+        const periodEndMs = periodEnd ? new Date(periodEnd).getTime() : null;
+        const expired = periodEndMs != null && periodEndMs <= Date.now();
+        const daysLeft = periodEndMs != null ? Math.ceil((periodEndMs - Date.now()) / (24 * 60 * 60 * 1000)) : null;
+        return (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Subscription Period</p>
+                  {!planId ? (
+                    <p className="text-sm mt-1">No plan assigned</p>
+                  ) : !periodEnd ? (
+                    <p className="text-sm mt-1">No period set (legacy account)</p>
+                  ) : expired ? (
+                    <p className="text-sm mt-1">
+                      <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20 mr-2">Expired</Badge>
+                      Ended {new Date(periodEnd).toLocaleDateString()}
+                    </p>
+                  ) : (
+                    <p className="text-sm mt-1">
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 mr-2">Active</Badge>
+                      Until {new Date(periodEnd).toLocaleDateString()} ({daysLeft} day{daysLeft === 1 ? "" : "s"} left)
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => onExtendSubscription(30)} disabled={isSubPending} data-testid="button-extend-subscription">
+                    Extend 30 days
+                  </Button>
+                  {periodEnd && !expired && (
+                    <Button size="sm" variant="outline" onClick={onEndSubscription} disabled={isSubPending}
+                      className="border-destructive/40 text-destructive hover:bg-destructive/10" data-testid="button-end-subscription">
+                      End Now
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* ── Account Monitoring Summary ───────────────────────────── */}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4">

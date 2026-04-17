@@ -4,6 +4,7 @@ import { logger } from "./lib/logger";
 import { runSeed } from "./seed";
 import { warmModelCostsCache } from "./lib/billing";
 import { cleanupExpiredIpLimits } from "./lib/ipRateLimit";
+import { startSubscriptionRolloverScheduler } from "./lib/subscription";
 import { pool } from "@workspace/db";
 
 const rawPort = process.env["PORT"];
@@ -31,6 +32,10 @@ const cleanupTimer = setInterval(() => {
   );
 }, IP_CLEANUP_INTERVAL_MS);
 cleanupTimer.unref();
+
+// Daily subscription rollover: auto-renew Free plans, lapse paid plans
+const subscriptionTimer = startSubscriptionRolloverScheduler();
+subscriptionTimer.unref();
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 function shutdown(server: Server, signal: string): void {
