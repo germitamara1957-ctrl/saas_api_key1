@@ -84,6 +84,28 @@ router.post("/portal/auth/login", async (req, res): Promise<void> => {
       return;
     }
 
+    // 2FA gate (T03 — portal): if totpEnabled, require a valid 6-digit TOTP
+    // code in the same login request. The frontend keeps the email+password
+    // in state and reposts with `totpCode` after the user enters it.
+    if (user.totpEnabled) {
+      const totpCode = typeof req.body?.totpCode === "string" ? req.body.totpCode.trim() : "";
+      if (!totpCode) {
+        res.status(401).json({ error: "2FA code required", totpRequired: true });
+        return;
+      }
+      if (!/^\d{6}$/.test(totpCode)) {
+        res.status(401).json({ error: "Invalid 2FA code", totpRequired: true });
+        return;
+      }
+      const { authenticator } = await import("otplib");
+      const { decryptApiKey } = await import("../../lib/crypto");
+      const secret = user.totpSecret ? decryptApiKey(user.totpSecret) : null;
+      if (!secret || !authenticator.check(totpCode, secret)) {
+        res.status(401).json({ error: "Invalid 2FA code", totpRequired: true });
+        return;
+      }
+    }
+
     await resetLoginLimit(ip, email).catch((err) => {
       // Non-critical: rate-limit reset failure should not block successful login.
       logger.warn({ err, email }, "Failed to reset login rate limit after successful login");

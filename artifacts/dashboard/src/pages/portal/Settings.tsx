@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { authFetch } from "@/lib/authFetch";
-import { User, Trash2, AlertTriangle, Tag, Loader2, Wallet, Download } from "lucide-react";
+import { User, Trash2, AlertTriangle, Tag, Loader2, Wallet, Download, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import i18n from "@/i18n";
@@ -363,6 +363,8 @@ export default function PortalSettings() {
         </CardContent>
       </Card>
 
+      <PortalTwoFactorCard isAr={isAr} />
+
       {/* Danger Zone */}
       <Card className="border-destructive/30">
         <CardHeader className={`flex flex-row items-center gap-3 space-y-0 ${isAr ? "flex-row-reverse" : ""}`}>
@@ -459,5 +461,186 @@ export default function PortalSettings() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function PortalTwoFactorCard({ isAr }: { isAr: boolean }) {
+  const { toast } = useToast();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [setupData, setSetupData] = useState<{ qrDataUrl: string; secret: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await authFetch("/api/portal/2fa/status");
+        if (!res.ok) { setEnabled(false); return; }
+        const d = await res.json();
+        setEnabled(Boolean(d.enabled));
+      } catch {
+        setEnabled(false);
+      }
+    })();
+  }, []);
+
+  const beginSetup = async () => {
+    setBusy(true);
+    try {
+      const res = await authFetch("/api/portal/2fa/setup", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Failed to start 2FA setup");
+      setSetupData({ qrDataUrl: d.qrDataUrl, secret: d.secret });
+    } catch (e) {
+      toast({
+        title: isAr ? "تعذّر بدء إعداد التحقّق الثنائي" : "2FA setup failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verify = async () => {
+    if (!/^[0-9]{6}$/.test(code)) {
+      toast({ title: isAr ? "أدخل رمزًا من 6 أرقام" : "Enter the 6-digit code", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await authFetch("/api/portal/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Verification failed");
+      setEnabled(true);
+      setSetupData(null);
+      setCode("");
+      toast({ title: isAr ? "تم تفعيل التحقّق الثنائي" : "Two-factor authentication enabled" });
+    } catch (e) {
+      toast({
+        title: isAr ? "فشل التحقّق" : "Verification failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    if (!/^[0-9]{6}$/.test(code)) {
+      toast({ title: isAr ? "أدخل رمزك الحالي من 6 أرقام لإيقاف التحقّق" : "Enter your current 6-digit code to disable", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await authFetch("/api/portal/2fa/disable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Failed to disable");
+      setEnabled(false);
+      setCode("");
+      toast({ title: isAr ? "تم إيقاف التحقّق الثنائي" : "Two-factor authentication disabled" });
+    } catch (e) {
+      toast({
+        title: isAr ? "تعذّر إيقاف التحقّق الثنائي" : "Failed to disable 2FA",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className={`flex flex-row items-center gap-3 space-y-0 ${isAr ? "flex-row-reverse" : ""}`}>
+        <div className="p-2 rounded-full bg-primary/10">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+        </div>
+        <div>
+          <CardTitle className="text-base">
+            {isAr ? "التحقّق الثنائي (TOTP)" : "Two-Factor Authentication (TOTP)"}
+          </CardTitle>
+          <CardDescription>
+            {isAr
+              ? "أضِف طبقة حماية ثانية باستخدام تطبيق Google Authenticator أو 1Password أو Authy."
+              : "Add a second factor (Google Authenticator, 1Password, Authy) to your account login."}
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {enabled === null ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : enabled ? (
+          <>
+            <div className="flex items-center gap-2 text-emerald-600">
+              <CheckCircle2 className="h-4 w-4" />
+              <span className="font-medium text-sm">
+                {isAr ? "التحقّق الثنائي مُفعَّل على هذا الحساب." : "2FA is enabled on this account."}
+              </span>
+            </div>
+            <div className="space-y-2 max-w-sm">
+              <Label>
+                {isAr ? "إيقاف التحقّق الثنائي — أدخل الرمز الحالي" : "Disable 2FA — enter current 6-digit code"}
+              </Label>
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                inputMode="numeric"
+                placeholder="123456"
+              />
+              <Button variant="destructive" onClick={disable} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                {isAr ? "إيقاف التحقّق الثنائي" : "Disable 2FA"}
+              </Button>
+            </div>
+          </>
+        ) : setupData ? (
+          <>
+            <p className="text-sm">
+              {isAr
+                ? "امسح رمز QR بتطبيق المصادقة لديك ثم أدخل الرمز المكوّن من 6 أرقام للتأكيد."
+                : "Scan this QR code with your authenticator app, then enter the 6-digit code to confirm."}
+            </p>
+            <img src={setupData.qrDataUrl} alt="TOTP QR code" className="border rounded-md p-2 bg-white" width={220} height={220} />
+            <p className="text-xs text-muted-foreground">
+              {isAr ? "أو أدخل هذا السر يدويًا:" : "Or enter this secret manually:"}{" "}
+              <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-xs">{setupData.secret}</code>
+            </p>
+            <div className="space-y-2 max-w-sm">
+              <Label>{isAr ? "رمز التحقّق" : "Verification code"}</Label>
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                inputMode="numeric"
+                placeholder="123456"
+              />
+              <div className="flex gap-2">
+                <Button onClick={verify} disabled={busy || code.length !== 6}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                  {isAr ? "تحقّق وفعِّل" : "Verify & Enable"}
+                </Button>
+                <Button variant="outline" onClick={() => { setSetupData(null); setCode(""); }} disabled={busy}>
+                  {isAr ? "إلغاء" : "Cancel"}
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <Button onClick={beginSetup} disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
+            {isAr ? "تفعيل التحقّق الثنائي" : "Enable 2FA"}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

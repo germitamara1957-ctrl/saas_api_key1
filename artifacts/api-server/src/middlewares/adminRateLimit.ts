@@ -25,3 +25,18 @@ export const adminAuthRateLimit = rateLimit({
   message: { error: "Too many login attempts. Please try again later." },
   keyGenerator: (req: Request) => ipKeyGenerator(req.ip ?? "127.0.0.1"),
 });
+
+/**
+ * Rate limiter for portal 2FA management endpoints — 30 attempts per 15 minutes per IP.
+ * Mirrors the admin 2FA hardening: brute-force protection on verify/disable, plus
+ * basic abuse protection on status/setup. Applied alongside `requireAuth` so an
+ * authenticated session is still required.
+ */
+export const portalTwoFaRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many 2FA attempts. Please try again later." },
+  keyGenerator: (req: Request) => ipKeyGenerator(req.ip ?? "127.0.0.1"),
+});

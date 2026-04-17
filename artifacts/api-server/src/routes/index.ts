@@ -12,6 +12,7 @@ import adminAuditLogRouter from "./admin/auditLog";
 import adminPromoCodesRouter from "./admin/promoCodes";
 import adminSettingsRouter from "./admin/settings";
 import adminTwoFaRouter from "./admin/twofa";
+import portalTwoFaRouter from "./portal/twofa";
 import adminIncidentsRouter from "./admin/incidents";
 
 import portalAuthRouter from "./portal/auth";
@@ -38,7 +39,7 @@ import v1FilesRouter from "./v1/files";
 import v1EmbeddingsRouter from "./v1/embeddings";
 
 import { requireAdmin, requireAuth } from "../middlewares/adminAuth";
-import { adminRateLimit, adminAuthRateLimit } from "../middlewares/adminRateLimit";
+import { adminRateLimit, adminAuthRateLimit, portalTwoFaRateLimit } from "../middlewares/adminRateLimit";
 
 const router: IRouter = Router();
 
@@ -74,6 +75,7 @@ router.use(adminTwoFaRouter);
 // Portal routes — login is public, /me /api-keys /usage require portal JWT
 router.use(portalAuthRouter);
 router.use(portalDocsRouter); // public — videos shown on /docs page for new users
+router.use("/portal/2fa", portalTwoFaRateLimit, requireAuth, portalTwoFaRouter);
 router.use("/portal/me", requireAuth);
 router.use("/portal/api-keys", requireAuth);
 router.use("/portal/usage", requireAuth);

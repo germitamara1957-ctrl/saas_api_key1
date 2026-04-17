@@ -1,10 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
-import { usePortalLogin } from "@workspace/api-client-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +11,22 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { Terminal, CheckCircle2, AlertCircle } from "lucide-react";
+import { Terminal, CheckCircle2, AlertCircle, ShieldCheck } from "lucide-react";
 import i18n from "@/i18n";
+
+// Direct fetch is used (instead of the generated `usePortalLogin`) because the
+// generated `LoginRequest` schema only declares `email` + `password`. The 2FA
+// gate adds an optional `totpCode` field that is not in the OpenAPI spec yet.
+async function portalLoginRequest(body: { email: string; password: string; totpCode?: string }) {
+  const res = await fetch("/api/portal/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
 
 export default function PortalLogin() {
   const navigate = useNavigate();
@@ -21,8 +34,10 @@ export default function PortalLogin() {
   const { login, isAuthenticated, user } = useAuth();
   const { toast } = useToast();
   const { t } = useTranslation();
-  const portalLogin = usePortalLogin();
   const isAr = i18n.language === "ar";
+  const [submitting, setSubmitting] = useState(false);
+  const [totpRequired, setTotpRequired] = useState(false);
+  const [totpCode, setTotpCode] = useState("");
 
   const verifiedStatus = searchParams.get("verified");
   const verifiedReason = searchParams.get("reason");
@@ -43,18 +58,62 @@ export default function PortalLogin() {
     defaultValues: { email: "", password: "" },
   });
 
-  const onSubmit = (data: z.infer<typeof loginSchema>) => {
-    portalLogin.mutate(
-      { data },
-      {
-        onSuccess: (res) => {
-          login(res.user);
-        },
-        onError: (error) => {
-          toast({ title: t("auth.signInFailed"), description: error.message || t("auth.invalidCredentials"), variant: "destructive" });
-        },
+  const onSubmit = async (data: z.infer<typeof loginSchema>) => {
+    setSubmitting(true);
+    try {
+      const body: { email: string; password: string; totpCode?: string } = {
+        email: data.email,
+        password: data.password,
+      };
+      if (totpRequired) {
+        if (!/^\d{6}$/.test(totpCode)) {
+          toast({
+            title: isAr ? "أدخل رمزًا من 6 أرقام" : "Enter the 6-digit code",
+            variant: "destructive",
+          });
+          return;
+        }
+        body.totpCode = totpCode;
       }
-    );
+
+      const { ok, status, data: res } = await portalLoginRequest(body);
+      if (ok && res?.user) {
+        login(res.user);
+        return;
+      }
+      // Backend signals "password OK, now provide TOTP" with 401 + totpRequired:true
+      if (status === 401 && (res as { totpRequired?: boolean })?.totpRequired) {
+        setTotpRequired(true);
+        if (totpRequired) {
+          // Already on the TOTP step → invalid code
+          toast({
+            title: isAr ? "رمز التحقّق غير صحيح" : "Invalid 2FA code",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: isAr ? "أدخل رمز التحقّق الثنائي" : "Enter your 2FA code",
+            description: isAr
+              ? "افتح تطبيق المصادقة وأدخل الرمز المكوّن من 6 أرقام."
+              : "Open your authenticator app and enter the 6-digit code.",
+          });
+        }
+        return;
+      }
+      toast({
+        title: t("auth.signInFailed"),
+        description: (res as { error?: string })?.error || t("auth.invalidCredentials"),
+        variant: "destructive",
+      });
+    } catch (err) {
+      toast({
+        title: t("auth.signInFailed"),
+        description: err instanceof Error ? err.message : t("auth.invalidCredentials"),
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -125,10 +184,36 @@ export default function PortalLogin() {
                   <FormMessage />
                 </FormItem>
               )} />
+              {totpRequired && (
+                <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <ShieldCheck className="h-4 w-4 text-primary" />
+                    {isAr ? "رمز التحقّق الثنائي (6 أرقام)" : "Two-factor code (6 digits)"}
+                  </div>
+                  <Input
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    placeholder="123456"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    data-testid="input-totp"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {isAr
+                      ? "افتح تطبيق المصادقة وأدخل الرمز الحالي."
+                      : "Open your authenticator app and enter the current code."}
+                  </p>
+                </div>
+              )}
             </CardContent>
             <CardFooter className="flex flex-col gap-3">
-              <Button type="submit" className="w-full" disabled={portalLogin.isPending} data-testid="button-submit">
-                {portalLogin.isPending ? (isAr ? "جارٍ الدخول..." : "Signing in...") : t("auth.signIn")}
+              <Button type="submit" className="w-full" disabled={submitting} data-testid="button-submit">
+                {submitting
+                  ? (isAr ? "جارٍ الدخول..." : "Signing in...")
+                  : totpRequired
+                    ? (isAr ? "تحقّق وادخل" : "Verify & Sign In")
+                    : t("auth.signIn")}
               </Button>
               <div className="flex items-center justify-between w-full text-sm text-muted-foreground">
                 <Link to="/forgot-password" className="text-primary hover:underline font-medium">
