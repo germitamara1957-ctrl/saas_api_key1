@@ -1,5 +1,6 @@
 import { db, ipRateLimitsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { withDbRetry } from "./dbRetry";
 
 /**
  * DB-backed IP rate limiter.
@@ -16,25 +17,31 @@ async function check(
 
   // Upsert: insert if not exists, or increment count if window still active
   // If the window has expired (resetAt < now), reset to a fresh window
-  const [row] = await db
-    .insert(ipRateLimitsTable)
-    .values({ key, count: 1, resetAt })
-    .onConflictDoUpdate({
-      target: ipRateLimitsTable.key,
-      set: {
-        count: sql`CASE
-          WHEN ${ipRateLimitsTable.resetAt} < NOW()
-          THEN 1
-          ELSE ${ipRateLimitsTable.count} + 1
-        END`,
-        resetAt: sql`CASE
-          WHEN ${ipRateLimitsTable.resetAt} < NOW()
-          THEN ${resetAt.toISOString()}::timestamptz
-          ELSE ${ipRateLimitsTable.resetAt}
-        END`,
-      },
-    })
-    .returning();
+  // Wrapped in withDbRetry: ON CONFLICT under heavy concurrency or transient
+  // Neon disconnects can yield 40001/08006 errors that recover on retry.
+  const [row] = await withDbRetry(
+    () =>
+      db
+        .insert(ipRateLimitsTable)
+        .values({ key, count: 1, resetAt })
+        .onConflictDoUpdate({
+          target: ipRateLimitsTable.key,
+          set: {
+            count: sql`CASE
+              WHEN ${ipRateLimitsTable.resetAt} < NOW()
+              THEN 1
+              ELSE ${ipRateLimitsTable.count} + 1
+            END`,
+            resetAt: sql`CASE
+              WHEN ${ipRateLimitsTable.resetAt} < NOW()
+              THEN ${resetAt.toISOString()}::timestamptz
+              ELSE ${ipRateLimitsTable.resetAt}
+            END`,
+          },
+        })
+        .returning(),
+    { label: "ipRateLimit.check" },
+  );
 
   if (!row) {
     return { allowed: true, retryAfterMs: 0 };

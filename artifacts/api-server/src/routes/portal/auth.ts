@@ -5,6 +5,7 @@ import { PortalLoginBody, PortalRegisterBody } from "@workspace/api-zod";
 import { verifyPassword, hashPassword, generateApiKey, encryptApiKey } from "../../lib/crypto";
 import { signToken } from "../../lib/jwt";
 import { checkRegistrationLimit, checkLoginLimit, resetLoginLimit } from "../../lib/ipRateLimit";
+import { withDbRetry } from "../../lib/dbRetry";
 import { sendEmail, buildVerificationEmail, buildPasswordResetEmail } from "../../lib/email";
 import { randomBytes } from "node:crypto";
 import { logger } from "../../lib/logger";
@@ -54,66 +55,71 @@ router.post("/portal/auth/login", async (req, res): Promise<void> => {
 
   const { email, password } = parsed.data;
 
-  const limitCheck = await checkLoginLimit(ip, email);
-  if (!limitCheck.allowed) {
-    const retryAfterSec = Math.ceil(limitCheck.retryAfterMs / 1000);
-    res.status(429).json({ error: `Too many login attempts. Please try again in ${retryAfterSec} seconds.` });
-    return;
-  }
+  try {
+    const limitCheck = await checkLoginLimit(ip, email);
+    if (!limitCheck.allowed) {
+      const retryAfterSec = Math.ceil(limitCheck.retryAfterMs / 1000);
+      res.status(429).json({ error: `Too many login attempts. Please try again in ${retryAfterSec} seconds.` });
+      return;
+    }
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, email))
-    .limit(1);
+    const [user] = await withDbRetry(
+      () =>
+        db
+          .select()
+          .from(usersTable)
+          .where(eq(usersTable.email, email))
+          .limit(1),
+      { label: "login.findUser" },
+    );
 
-  if (!user || !user.isActive) {
-    res.status(401).json({ error: "Invalid credentials" });
-    return;
-  }
+    if (!user || !user.isActive) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
+    }
 
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
-    res.status(401).json({ error: "Invalid credentials" });
-    return;
-  }
+    const valid = await verifyPassword(password, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
+    }
 
-  await resetLoginLimit(ip, email);
+    await resetLoginLimit(ip, email).catch((err) => {
+      // Non-critical: rate-limit reset failure should not block successful login.
+      logger.warn({ err, email }, "Failed to reset login rate limit after successful login");
+    });
 
-  const token = signToken({
-    sub: String(user.id),
-    email: user.email,
-    role: user.role,
-    name: user.name,
-  });
-
-  setAuthCookie(res, token);
-
-  res.json({
-    user: {
-      id: user.id,
+    const token = signToken({
+      sub: String(user.id),
       email: user.email,
-      name: user.name,
       role: user.role,
-      isActive: user.isActive,
-      emailVerified: user.emailVerified,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    },
-  });
+      name: user.name,
+    });
+
+    setAuthCookie(res, token);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isActive: user.isActive,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+    });
+  } catch (err) {
+    logger.error({ err, email, ip }, "Login handler failed unexpectedly");
+    res.status(503).json({
+      error: "Service temporarily unavailable. Please try again in a moment.",
+    });
+  }
 });
 
 router.post("/portal/auth/register", async (req, res): Promise<void> => {
   const ip = getClientIp(req);
-
-  const limitCheck = await checkRegistrationLimit(ip);
-  if (!limitCheck.allowed) {
-    const retryAfterHours = Math.ceil(limitCheck.retryAfterMs / 3_600_000);
-    res.status(429).json({
-      error: `Too many accounts created from this network. Please try again in ${retryAfterHours} hour${retryAfterHours === 1 ? "" : "s"}.`,
-    });
-    return;
-  }
 
   const parsed = PortalRegisterBody.safeParse(req.body);
   if (!parsed.success) {
@@ -123,108 +129,128 @@ router.post("/portal/auth/register", async (req, res): Promise<void> => {
 
   const { name, email, password } = parsed.data;
 
-  const [existing] = await db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(eq(usersTable.email, email))
-    .limit(1);
-
-  if (existing) {
-    res.status(409).json({ error: "An account with this email already exists" });
-    return;
-  }
-
-  const passwordHash = await hashPassword(password);
-
-  const [freePlan] = await db
-    .select()
-    .from(plansTable)
-    .where(eq(plansTable.isActive, true))
-    .orderBy(asc(plansTable.priceUsd), asc(plansTable.id))
-    .limit(1);
-
-  const verificationToken = generateVerificationToken();
-  const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-  let user: typeof usersTable.$inferSelect;
-  let apiKeyPayload: {
-    keyPrefix: string;
-    fullKey: string;
-    creditBalance: number;
-    planName: string;
-  } | null = null;
-
-  await db.transaction(async (tx) => {
-    const [newUser] = await tx
-      .insert(usersTable)
-      .values({
-        name,
-        email,
-        passwordHash,
-        role: "developer",
-        isActive: true,
-        creditBalance: freePlan ? freePlan.monthlyCredits : 0,
-        emailVerified: false,
-        emailVerificationToken: verificationToken,
-        emailVerificationTokenExpiresAt: tokenExpiresAt,
-      })
-      .returning();
-
-    user = newUser!;
-
-    if (freePlan) {
-      const { rawKey, keyHash, keyPrefix } = generateApiKey();
-      const keyEncrypted = encryptApiKey(rawKey);
-
-      await tx.insert(apiKeysTable).values({
-        userId: user.id,
-        planId: freePlan.id,
-        keyPrefix,
-        keyHash,
-        keyEncrypted,
-        name: "Default Key",
-        creditBalance: 0,
-        isActive: true,
+  try {
+    const limitCheck = await checkRegistrationLimit(ip);
+    if (!limitCheck.allowed) {
+      const retryAfterHours = Math.ceil(limitCheck.retryAfterMs / 3_600_000);
+      res.status(429).json({
+        error: `Too many accounts created from this network. Please try again in ${retryAfterHours} hour${retryAfterHours === 1 ? "" : "s"}.`,
       });
-
-      apiKeyPayload = {
-        keyPrefix,
-        fullKey: rawKey,
-        creditBalance: freePlan.monthlyCredits,
-        planName: freePlan.name,
-      };
+      return;
     }
-  });
 
-  const appBaseUrl = await getAppBaseUrl(req);
-  const emailContent = buildVerificationEmail(name, verificationToken, appBaseUrl);
-  sendEmail({ to: email, ...emailContent }).catch((err) => {
-    logger.warn({ err, email }, "Failed to send verification email after registration");
-  });
+    const [existing] = await withDbRetry(
+      () =>
+        db
+          .select({ id: usersTable.id })
+          .from(usersTable)
+          .where(eq(usersTable.email, email))
+          .limit(1),
+      { label: "register.existsCheck" },
+    );
 
-  const jwtToken = signToken({
-    sub: String(user!.id),
-    email: user!.email,
-    role: user!.role,
-    name: user!.name,
-  });
+    if (existing) {
+      res.status(409).json({ error: "An account with this email already exists" });
+      return;
+    }
 
-  setAuthCookie(res, jwtToken);
+    const passwordHash = await hashPassword(password);
 
-  res.status(201).json({
-    user: {
-      id: user!.id,
+    const [freePlan] = await db
+      .select()
+      .from(plansTable)
+      .where(eq(plansTable.isActive, true))
+      .orderBy(asc(plansTable.priceUsd), asc(plansTable.id))
+      .limit(1);
+
+    const verificationToken = generateVerificationToken();
+    const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    let user: typeof usersTable.$inferSelect;
+    let apiKeyPayload: {
+      keyPrefix: string;
+      fullKey: string;
+      creditBalance: number;
+      planName: string;
+    } | null = null;
+
+    await db.transaction(async (tx) => {
+      const [newUser] = await tx
+        .insert(usersTable)
+        .values({
+          name,
+          email,
+          passwordHash,
+          role: "developer",
+          isActive: true,
+          creditBalance: freePlan ? freePlan.monthlyCredits : 0,
+          emailVerified: false,
+          emailVerificationToken: verificationToken,
+          emailVerificationTokenExpiresAt: tokenExpiresAt,
+        })
+        .returning();
+
+      user = newUser!;
+
+      if (freePlan) {
+        const { rawKey, keyHash, keyPrefix } = generateApiKey();
+        const keyEncrypted = encryptApiKey(rawKey);
+
+        await tx.insert(apiKeysTable).values({
+          userId: user.id,
+          planId: freePlan.id,
+          keyPrefix,
+          keyHash,
+          keyEncrypted,
+          name: "Default Key",
+          creditBalance: 0,
+          isActive: true,
+        });
+
+        apiKeyPayload = {
+          keyPrefix,
+          fullKey: rawKey,
+          creditBalance: freePlan.monthlyCredits,
+          planName: freePlan.name,
+        };
+      }
+    });
+
+    const appBaseUrl = await getAppBaseUrl(req);
+    const emailContent = buildVerificationEmail(name, verificationToken, appBaseUrl);
+    sendEmail({ to: email, ...emailContent }).catch((err) => {
+      logger.warn({ err, email }, "Failed to send verification email after registration");
+    });
+
+    const jwtToken = signToken({
+      sub: String(user!.id),
       email: user!.email,
-      name: user!.name,
       role: user!.role,
-      isActive: user!.isActive,
-      emailVerified: false,
-      createdAt: user!.createdAt,
-      updatedAt: user!.updatedAt,
-    },
-    apiKey: apiKeyPayload,
-    verificationEmailSent: true,
-  });
+      name: user!.name,
+    });
+
+    setAuthCookie(res, jwtToken);
+
+    res.status(201).json({
+      user: {
+        id: user!.id,
+        email: user!.email,
+        name: user!.name,
+        role: user!.role,
+        isActive: user!.isActive,
+        emailVerified: false,
+        createdAt: user!.createdAt,
+        updatedAt: user!.updatedAt,
+      },
+      apiKey: apiKeyPayload,
+      verificationEmailSent: true,
+    });
+  } catch (err) {
+    logger.error({ err, email, ip }, "Register handler failed unexpectedly");
+    res.status(503).json({
+      error: "Service temporarily unavailable. Please try again in a moment.",
+    });
+  }
 });
 
 router.get("/portal/auth/verify-email", async (req, res): Promise<void> => {
