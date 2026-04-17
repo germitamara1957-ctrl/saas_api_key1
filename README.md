@@ -236,7 +236,7 @@ curl -H "Authorization: Bearer sk-xxx" https://your-domain.replit.app/v1/models
 
 ---
 
-## قاعدة البيانات (12 جدول)
+## قاعدة البيانات (17 جدول)
 
 | الجدول | الغرض |
 |--------|-------|

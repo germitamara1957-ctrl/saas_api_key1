@@ -264,6 +264,15 @@ Do **not** hardcode any payment credentials. Always store them as Replit Secrets
 
 ## Recent Changes (Apr 2026)
 
+### Session 29 — Sprint close-out (T13 soft limits + T6 legal pages + T14 test fixes)
+
+Closed all remaining sprint items; suite now 196/196 tests green.
+
+- **T13 — Soft limits (`plan.maxWebhooks`)**: Added `max_webhooks` integer column (default 3) to `plans` (migration `0006_plan_max_webhooks.sql`). Wired into admin POST/PATCH `/api/admin/plans` (CRUD + UI input on `pages/admin/Plans.tsx`). Enforced in `POST /api/portal/webhooks`: loads `user.currentPlanId` → `plan.maxWebhooks` → counts existing webhooks → returns `403` with plan name + limit when at cap. Skips enforcement when user has no plan assigned. OpenAPI updated; api-zod regenerated.
+- **T6 — Legal pages**: Bilingual (AR/EN) `Privacy.tsx` + `Terms.tsx` registered at `/privacy` and `/terms`; footer links added to `Landing.tsx`.
+- **T14 — Test fixes**: Final 22 failing tests (`v1-misc` cluster + new T13 cases) fixed. v1-misc fix required adding `update/set/delete` mocks in `beforeEach`, resetting `isModelInPlan/calculateChatCost` mocks, adding `billingTarget`/`topupCredit` to `mockApiKey`, and expanding the allowed models list. T13 tests required accounting for `requireAuth`'s own users-table lookup in the mock chain (4 `where`/3 `limit` calls per request).
+- **Architect re-review: PASS**. Typecheck clean (api-server + dashboard). All 196 tests across 17 files passing.
+
 ### Session 28 — Production-hardening sprint (T01–T12) + Portal 2FA (T03b)
 
 Twelve-feature production hardening sweep, then extended 2FA from admin-only to also cover developer/portal accounts on user request.
