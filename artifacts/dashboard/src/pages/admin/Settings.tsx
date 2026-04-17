@@ -223,6 +223,76 @@ export default function AdminSettings() {
         <p className="text-muted-foreground mt-1">Configure email delivery and platform integrations.</p>
       </div>
 
+      {/* Video Tutorials moved to TOP for high visibility — admins land here first */}
+      <Card className="border-primary/40 shadow-sm" data-testid="card-video-tutorials">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Video className="h-5 w-5 text-primary" />
+            <CardTitle>Video Tutorials</CardTitle>
+          </div>
+          <CardDescription>
+            Add YouTube tutorial links shown to developers at the TOP of the API Documentation page. Great for onboarding new users.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {videos.length === 0 && (
+            <p className="text-sm text-muted-foreground italic">
+              No videos yet — click "Add video" below to add a tutorial link.
+            </p>
+          )}
+          {videos.map((v, i) => (
+            <div key={i} className="rounded-md border bg-muted/30 p-3 space-y-3" data-testid={`video-row-${i}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Video #{i + 1}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeVideo(i)}
+                  aria-label="Remove video"
+                  data-testid={`button-remove-video-${i}`}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`video-title-${i}`}>Title</Label>
+                <Input
+                  id={`video-title-${i}`}
+                  placeholder="Getting Started with the AI Gateway"
+                  value={v.title}
+                  onChange={(e) => handleVideoChange(i, "title", e.target.value)}
+                  data-testid={`input-video-title-${i}`}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`video-url-${i}`}>YouTube URL</Label>
+                <Input
+                  id={`video-url-${i}`}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={v.url}
+                  onChange={(e) => handleVideoChange(i, "url", e.target.value)}
+                  type="url"
+                  data-testid={`input-video-url-${i}`}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Paste any YouTube link (watch, youtu.be, embed, or shorts). Other http(s) links are also accepted.
+                </p>
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center gap-3 pt-1">
+            <Button variant="outline" onClick={addVideo} data-testid="button-add-video">
+              <Plus className="h-4 w-4 mr-2" />
+              Add video
+            </Button>
+            <Button onClick={handleSaveVideos} disabled={savingVideos} data-testid="button-save-videos">
+              {savingVideos ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+              Save videos
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -257,69 +327,6 @@ export default function AdminSettings() {
                 <Save className="h-4 w-4 mr-2" />
               )}
               {saved ? "Saved!" : "Save Settings"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Video className="h-5 w-5 text-primary" />
-            <CardTitle>Video Tutorials</CardTitle>
-          </div>
-          <CardDescription>
-            Add YouTube (or other) tutorial video links shown to developers on the API Documentation page. Great for onboarding new users.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {videos.length === 0 && (
-            <p className="text-sm text-muted-foreground italic">
-              No videos yet — click "Add video" to add a tutorial link.
-            </p>
-          )}
-          {videos.map((v, i) => (
-            <div key={i} className="flex gap-2 items-end" data-testid={`video-row-${i}`}>
-              <div className="flex-1 space-y-2">
-                <Label htmlFor={`video-title-${i}`} className="text-xs">Title</Label>
-                <Input
-                  id={`video-title-${i}`}
-                  placeholder="Getting Started with the AI Gateway"
-                  value={v.title}
-                  onChange={(e) => handleVideoChange(i, "title", e.target.value)}
-                  data-testid={`input-video-title-${i}`}
-                />
-              </div>
-              <div className="flex-1 space-y-2">
-                <Label htmlFor={`video-url-${i}`} className="text-xs">YouTube URL</Label>
-                <Input
-                  id={`video-url-${i}`}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  value={v.url}
-                  onChange={(e) => handleVideoChange(i, "url", e.target.value)}
-                  type="url"
-                  data-testid={`input-video-url-${i}`}
-                />
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removeVideo(i)}
-                aria-label="Remove video"
-                data-testid={`button-remove-video-${i}`}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
-          ))}
-          <div className="flex items-center gap-3 pt-2">
-            <Button variant="outline" onClick={addVideo} data-testid="button-add-video">
-              <Plus className="h-4 w-4 mr-2" />
-              Add video
-            </Button>
-            <Button onClick={handleSaveVideos} disabled={savingVideos} data-testid="button-save-videos">
-              {savingVideos ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-              Save videos
             </Button>
           </div>
         </CardContent>

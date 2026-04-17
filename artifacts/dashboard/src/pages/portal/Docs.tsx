@@ -834,21 +834,9 @@ console.log("MP4 size (bytes):", mp4.size);`;
         <p className="text-muted-foreground mt-1">Complete reference for all gateway endpoints with code examples.</p>
       </div>
 
-      {/* Base URL */}
-      <Card>
-        <CardHeader><CardTitle className="text-base">Base URL</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <CodeBlock code={base} />
-          <div className="text-sm text-muted-foreground space-y-1">
-            <p>All requests require: <code className="text-xs bg-muted px-1 py-0.5 rounded">Authorization: Bearer YOUR_API_KEY</code></p>
-            <p>All responses are JSON. Errors return: <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{ \"error\": \"...\" }"}</code></p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Video Tutorials — admin-managed; only renders when at least one video is configured */}
+      {/* Video Tutorials — admin-managed; rendered at the TOP for maximum visibility. Only renders when at least one video is configured */}
       {videos.length > 0 && (
-        <Card data-testid="card-video-tutorials">
+        <Card data-testid="card-video-tutorials" className="border-primary/30">
           <CardHeader>
             <CardTitle className="text-base">{isAr ? "شروحات بالفيديو" : "Video Tutorials"}</CardTitle>
           </CardHeader>
@@ -890,6 +878,18 @@ console.log("MP4 size (bytes):", mp4.size);`;
           </CardContent>
         </Card>
       )}
+
+      {/* Base URL */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Base URL</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <CodeBlock code={base} />
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>All requests require: <code className="text-xs bg-muted px-1 py-0.5 rounded">Authorization: Bearer YOUR_API_KEY</code></p>
+            <p>All responses are JSON. Errors return: <code className="text-xs bg-muted px-1 py-0.5 rounded">{"{ \"error\": \"...\" }"}</code></p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Models Reference */}
       <div className="space-y-3">

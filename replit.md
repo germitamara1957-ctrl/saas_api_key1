@@ -574,6 +574,19 @@ Fix:
 
 Architect approved. Future work: wrap the `db.transaction` blocks (register, account deletion) in `withDbRetry` to handle commit-time serialization failures.
 
+### Session 27 — Video Tutorials moved to TOP for visibility (UX fix)
+**Problem reported (Arabic, repeated 3×)**: User couldn't find video URL input ("اريد مكان لاضافة رابط الفيديو"), reported save not working, and wanted videos at top of Docs page so developers see them first. Screenshots showed user was on Incidents page, never reaching Settings (which was at bottom of sidebar).
+
+**Changes**:
+- **`artifacts/dashboard/src/pages/portal/Docs.tsx`**: Video Tutorials Card moved BEFORE Base URL card (now first thing developers see after page header). Added `border-primary/30` accent.
+- **`artifacts/dashboard/src/pages/admin/Settings.tsx`**: Video Tutorials Card moved to TOP — first card before Platform URL & SMTP. Highlighted with `border-primary/40 shadow-sm`. Layout redesigned: each video in its own boxed row (`rounded-md border bg-muted/30 p-3`) with "Video #N" header, full-width Title and YouTube URL inputs stacked vertically (instead of cramped horizontal flex), and explicit help text under URL field ("Paste any YouTube link...").
+- Save flow unchanged (already working: `handleSaveVideos` → `saveSettings({docs_videos})` → PUT `/api/admin/settings`). User's "save not working" report attributed to UI confusion — they were on Incidents page, not Settings.
+
+Architect explorer review: PASS — no duplicate cards, balanced JSX, save flow intact.
+
+### Session 26 — `/v1/models` chat-only filter for n8n compatibility
+Fixed `/v1/models` returning veo/whisper/tts to n8n chat node. Default now returns only chat-completion models. Added `?type=all` escape hatch. Category-specific endpoints (`/v1/models/video`, etc.) unchanged.
+
 ### Session 25 — Admin-managed YouTube tutorial videos on public Docs page
 
 Goal: let new users watch onboarding videos directly on the API Documentation page without logging in.
